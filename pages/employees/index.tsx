@@ -7,6 +7,7 @@ import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
+import { getFieldLabel } from '../../lib/utils';
 
 interface Employee {
   id: string;
@@ -143,7 +144,7 @@ export default function Employees() {
   const printList = () => {
     const html = `<!DOCTYPE html><html><head><title>Funcionários</title></head><body>` +
       `<table border="1" cellPadding="4"><thead><tr>` +
-      columns.map((c) => `<th>${c}</th>`).join('') +
+      columns.map((c) => `<th>${getFieldLabel(c)}</th>`).join('') +
       `</tr></thead><tbody>` +
       filtered
         .map(
@@ -187,7 +188,7 @@ export default function Employees() {
             >
               {allColumns.map((c) => (
                 <option key={c} value={c}>
-                  {c}
+                  {getFieldLabel(c)}
                 </option>
               ))}
             </select>
@@ -243,14 +244,14 @@ export default function Employees() {
         </Button>
       </div>
       <div className="mt-2 space-x-2">
-          {filters.map((f, i) => (
-            <span key={i} className="bg-purple-50 p-1 rounded">
-              {`${f.field}:${f.value}`}
-              <button className="ml-1" onClick={() => removeFilter(i)}>
-                x
-              </button>
-            </span>
-          ))}
+        {filters.map((f, i) => (
+          <span key={i} className="bg-purple-50 p-1 rounded">
+            {`${getFieldLabel(f.field)}:${f.value}`}
+            <button className="ml-1" onClick={() => removeFilter(i)}>
+              x
+            </button>
+          </span>
+        ))}
       </div>
       <div className="flex justify-between items-center mt-4 relative">
         <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
@@ -278,7 +279,7 @@ export default function Employees() {
                       )
                     }
                   />
-                  {c}
+                  {getFieldLabel(c)}
                 </label>
               ))}
             </div>
@@ -304,7 +305,7 @@ export default function Employees() {
           <tr>
             {columns.map((c) => (
               <th key={c} className="border p-2">
-                {c}
+                {getFieldLabel(c)}
               </th>
             ))}
             <th className="border p-2">Ações</th>

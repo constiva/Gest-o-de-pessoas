@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
+import { getFieldLabel } from '../lib/utils';
 
 interface Props {
   id: string;
@@ -87,7 +88,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
       `<table border="1" cellPadding="4"><tbody>` +
       entries
         .map(
-          ([k, v]) => `<tr><td>${k}</td><td>${String(v)}</td></tr>`
+          ([k, v]) => `<tr><td>${getFieldLabel(k)}</td><td>${String(v)}</td></tr>`
         )
         .join('') +
       `</tbody></table></body></html>`;
@@ -125,7 +126,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
                       )
                     }
                   />
-                  {f}
+                  {getFieldLabel(f)}
                 </label>
               ))}
             </div>
@@ -148,7 +149,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
                 <tbody>
                   {groupRows.map(([k, v]) => (
                     <tr key={k} className="odd:bg-white even:bg-purple-50/40">
-                      <td className="border p-2 font-medium">{k}</td>
+                      <td className="border p-2 font-medium">{getFieldLabel(k)}</td>
                       <td className="border p-2">{String(v)}</td>
                     </tr>
                   ))}
@@ -164,7 +165,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
               <tbody>
                 {customFieldEntries.map(([k, v]) => (
                   <tr key={k} className="odd:bg-white even:bg-purple-50/40">
-                    <td className="border p-2 font-medium">{k}</td>
+                    <td className="border p-2 font-medium">{getFieldLabel(k)}</td>
                     <td className="border p-2">{String(v)}</td>
                   </tr>
                 ))}
