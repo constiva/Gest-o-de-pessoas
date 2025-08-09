@@ -31,7 +31,6 @@ export default function Employees() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [filters, setFilters] = useState<Filter[]>([]);
-  const [filtersReady, setFiltersReady] = useState(false);
   const [views, setViews] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<any | null>(null);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
@@ -131,7 +130,6 @@ export default function Employees() {
     setColumns(view?.columns && view.columns.length ? view.columns : defaultViewCols);
     setFilters(view?.filters || []);
     setField(all[0] || '');
-    setFiltersReady(true);
   };
 
   useEffect(() => {
@@ -184,12 +182,7 @@ export default function Employees() {
     setCurrentView((cv) => (cv ? { ...cv, columns } : cv));
     setViews((vs) => vs.map((v) => (v.id === currentView.id ? { ...v, columns } : v)));
   }, [columns, currentView?.id]);
-  useEffect(() => {
-    if (!filtersReady || !currentView) return;
-    supabase.from('employee_views').update({ filters }).eq('id', currentView.id);
-    setCurrentView((cv) => (cv ? { ...cv, filters } : cv));
-    setViews((vs) => vs.map((v) => (v.id === currentView.id ? { ...v, filters } : v)));
-  }, [filters, filtersReady, currentView?.id]);
+  // filters are saved explicitly when added or removed
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
   const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
@@ -214,35 +207,62 @@ export default function Employees() {
     setRangeEnd('');
   }, [field, employees, filterType]);
 
-  const addFilter = () => {
+  const addFilter = async () => {
+    let newFilters = [...filters];
     if (filterType === 'standard') {
       if (isTextField(field) && textValue) {
-        setFilters([...filters, { field, value: textValue, type: 'text' }]);
+        newFilters = [...newFilters, { field, value: textValue, type: 'text' }];
         setTextValue('');
       } else if (isRangeField(field) && (rangeStart || rangeEnd)) {
-        setFilters([
-          ...filters,
+        newFilters = [
+          ...newFilters,
           { field, min: rangeStart, max: rangeEnd, type: 'range' },
-        ]);
+        ];
         setRangeStart('');
         setRangeEnd('');
       } else if (value) {
-        setFilters([...filters, { field, value, type: 'equal' }]);
+        newFilters = [...newFilters, { field, value, type: 'equal' }];
         setValue('');
+      } else {
+        return;
       }
     } else if (customFieldName && customFieldValue) {
-      setFilters([
-        ...filters,
+      newFilters = [
+        ...newFilters,
         { field: customFieldName, value: customFieldValue, custom: true },
-      ]);
+      ];
       setCustomFieldName('');
       setCustomFieldValue('');
+    } else {
+      return;
     }
+    setFilters(newFilters);
     setShowFilter(false);
+    if (currentView) {
+      await supabase
+        .from('employee_views')
+        .update({ filters: newFilters })
+        .eq('id', currentView.id);
+      setCurrentView({ ...currentView, filters: newFilters });
+      setViews((vs) =>
+        vs.map((v) => (v.id === currentView.id ? { ...v, filters: newFilters } : v))
+      );
+    }
   };
 
-  const removeFilter = (i: number) => {
-    setFilters(filters.filter((_, idx) => idx !== i));
+  const removeFilter = async (i: number) => {
+    const newFilters = filters.filter((_, idx) => idx !== i);
+    setFilters(newFilters);
+    if (currentView) {
+      await supabase
+        .from('employee_views')
+        .update({ filters: newFilters })
+        .eq('id', currentView.id);
+      setCurrentView({ ...currentView, filters: newFilters });
+      setViews((vs) =>
+        vs.map((v) => (v.id === currentView.id ? { ...v, filters: newFilters } : v))
+      );
+    }
   };
 
   const updateStatus = async (id: string, status: string) => {
@@ -430,8 +450,9 @@ export default function Employees() {
             </Button>
             {v.name !== 'Principal' && (
               <button
-                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs"
+                className="absolute -top-1 -right-1 text-xs text-gray-400 hover:text-red-500"
                 onClick={() => deleteView(v.id)}
+                aria-label="Excluir"
               >
                 ×
               </button>
