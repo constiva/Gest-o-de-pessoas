@@ -5,7 +5,8 @@ import { supabase } from '../../lib/supabaseClient';
 import EmployeeStats from '../../components/EmployeeStats';
 import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
-import EmployeeConfigModal from '../../components/EmployeeConfigModal';
+import CustomFieldSidebar from '../../components/CustomFieldSidebar';
+import DepartmentSidebar from '../../components/DepartmentSidebar';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 
 interface Employee {
@@ -35,7 +36,9 @@ export default function Employees() {
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [openActions, setOpenActions] = useState<string | null>(null);
   const [showColumns, setShowColumns] = useState(false);
-  const [configOpen, setConfigOpen] = useState(false);
+  const [fieldOpen, setFieldOpen] = useState(false);
+  const [deptOpen, setDeptOpen] = useState(false);
+  const [showConfig, setShowConfig] = useState(false);
   const [viewId, setViewId] = useState<string | null>(null);
   const router = useRouter();
 
@@ -46,40 +49,41 @@ export default function Employees() {
     setCounts({ active, inactive, dismissed });
   };
 
+  const load = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data: user } = await supabase
+      .from('users')
+      .select('company_id')
+      .eq('id', session.user.id)
+      .single();
+    const { data: defs } = await supabase
+      .from('custom_fields')
+      .select('field,value')
+      .eq('company_id', user.company_id);
+    const defMap: Record<string, string[]> = {};
+    defs?.forEach((d: any) => {
+      defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
+    });
+    setCustomFieldDefs(defMap);
+    const { data = [] } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('company_id', user.company_id);
+    const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
+    setEmployees(expanded);
+    refreshCounts(expanded);
+    const cols = expanded.length
+      ? Object.keys(expanded[0]).filter((k) => k !== 'company_id' && k !== 'custom_fields')
+      : [];
+    const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
+    setAllColumns(all);
+    const saved = localStorage.getItem('employeeColumns');
+    setColumns(saved ? JSON.parse(saved) : all);
+    setField(all[0] || '');
+  };
+
   useEffect(() => {
-    const load = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const { data: user } = await supabase
-        .from('users')
-        .select('company_id')
-        .eq('id', session.user.id)
-        .single();
-      const { data: defs } = await supabase
-        .from('custom_fields')
-        .select('field,value')
-        .eq('company_id', user.company_id);
-      const defMap: Record<string, string[]> = {};
-      defs?.forEach((d: any) => {
-        defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
-      });
-      setCustomFieldDefs(defMap);
-      const { data = [] } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('company_id', user.company_id);
-      const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
-      setEmployees(expanded);
-      refreshCounts(expanded);
-      const cols = expanded.length
-        ? Object.keys(expanded[0]).filter((k) => k !== 'company_id' && k !== 'custom_fields')
-        : [];
-      const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
-      setAllColumns(all);
-      const saved = localStorage.getItem('employeeColumns');
-      setColumns(saved ? JSON.parse(saved) : all);
-      setField(all[0] || '');
-    };
     load();
   }, []);
 
@@ -284,16 +288,40 @@ export default function Employees() {
           )}
         </div>
       </div>
-      <div className="my-4 space-x-4">
+      <div className="my-4 space-x-4 flex items-center">
         <Link href="/employees/new" className="text-brand hover:underline">
           + Adicionar Funcionário
         </Link>
-        <button
-          onClick={() => setConfigOpen(true)}
-          className="text-brand hover:underline"
-        >
-          Configurações
-        </button>
+        <div className="relative">
+          <button
+            onClick={() => setShowConfig(!showConfig)}
+            className="text-brand hover:underline"
+          >
+            Configurações
+          </button>
+          {showConfig && (
+            <div className="absolute right-0 mt-2 bg-white border p-2 space-y-1 z-20">
+              <button
+                className="block text-left w-full hover:underline"
+                onClick={() => {
+                  setFieldOpen(true);
+                  setShowConfig(false);
+                }}
+              >
+                Campos personalizados
+              </button>
+              <button
+                className="block text-left w-full hover:underline"
+                onClick={() => {
+                  setDeptOpen(true);
+                  setShowConfig(false);
+                }}
+              >
+                Departamentos
+              </button>
+            </div>
+          )}
+        </div>
         <Button variant="outline" onClick={printList}>
           Imprimir
         </Button>
@@ -406,9 +434,19 @@ export default function Employees() {
           ))}
         </tbody>
       </table>
-      <EmployeeConfigModal
-        open={configOpen}
-        onClose={() => setConfigOpen(false)}
+      <CustomFieldSidebar
+        open={fieldOpen}
+        onClose={() => {
+          setFieldOpen(false);
+          load();
+        }}
+      />
+      <DepartmentSidebar
+        open={deptOpen}
+        onClose={() => {
+          setDeptOpen(false);
+          load();
+        }}
       />
       {viewId && (
         <EmployeeViewModal id={viewId} onClose={() => setViewId(null)} />

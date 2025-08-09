@@ -1,6 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
+import { Card } from './ui/card';
+import { Input } from './ui/input';
+import { Button } from './ui/button';
+import { Settings } from 'lucide-react';
+import CustomFieldSidebar from './CustomFieldSidebar';
+import DepartmentSidebar from './DepartmentSidebar';
 
 interface Employee {
   id?: string;
@@ -57,45 +63,47 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   const [company, setCompany] = useState<any>(null);
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [departments, setDepartments] = useState<string[]>([]);
+  const [fieldOpen, setFieldOpen] = useState(false);
+  const [deptOpen, setDeptOpen] = useState(false);
 
   useEffect(() => {
     setForm(employee ? { ...employee, custom_fields: employee.custom_fields || {} } : defaultEmployee);
   }, [employee]);
+  const loadOptions = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session) {
+      router.replace('/login');
+      return;
+    }
+    const { data: user } = await supabase
+      .from('users')
+      .select('company_id')
+      .eq('id', session.user.id)
+      .single();
+    const { data: comp } = await supabase
+      .from('companies')
+      .select('*')
+      .eq('id', user.company_id)
+      .single();
+    setCompany(comp);
+    const { data: defs } = await supabase
+      .from('custom_fields')
+      .select('field,value')
+      .eq('company_id', user.company_id);
+    const map: Record<string, string[]> = {};
+    defs?.forEach((d: any) => {
+      map[d.field] = map[d.field] ? [...map[d.field], d.value] : [d.value];
+    });
+    setCustomFieldDefs(map);
+    const { data: deps } = await supabase
+      .from('departments')
+      .select('name')
+      .eq('company_id', user.company_id);
+    setDepartments(deps?.map((d: any) => d.name) || []);
+  };
 
   useEffect(() => {
-    const loadCompany = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        router.replace('/login');
-        return;
-      }
-      const { data: user } = await supabase
-        .from('users')
-        .select('company_id')
-        .eq('id', session.user.id)
-        .single();
-      const { data: comp } = await supabase
-        .from('companies')
-        .select('*')
-        .eq('id', user.company_id)
-        .single();
-      setCompany(comp);
-      const { data: defs } = await supabase
-        .from('custom_fields')
-        .select('field,value')
-        .eq('company_id', user.company_id);
-      const map: Record<string, string[]> = {};
-      defs?.forEach((d: any) => {
-        map[d.field] = map[d.field] ? [...map[d.field], d.value] : [d.value];
-      });
-      setCustomFieldDefs(map);
-      const { data: deps } = await supabase
-        .from('departments')
-        .select('name')
-        .eq('company_id', user.company_id);
-      setDepartments(deps?.map((d: any) => d.name) || []);
-    };
-    loadCompany();
+    loadOptions();
   }, [router]);
 
   const handleChange = (
@@ -136,17 +144,18 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
+    <>
+      <form onSubmit={handleSubmit} className="space-y-6">
       <h1 className="text-xl font-bold">
         {isEdit ? 'Editar Funcionário' : 'Novo Funcionário'}
       </h1>
 
-      <section>
-        <h2 className="font-semibold mb-2">Informações pessoais</h2>
+      <Card>
+        <h2 className="font-semibold mb-4">Informações pessoais</h2>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
             <label htmlFor="name">Nome completo</label>
-            <input
+            <Input
               id="name"
               name="name"
               placeholder="Ex: João da Silva"
@@ -156,7 +165,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="email">Email</label>
-            <input
+            <Input
               id="email"
               name="email"
               type="email"
@@ -167,7 +176,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="phone">Telefone</label>
-            <input
+            <Input
               id="phone"
               name="phone"
               placeholder="Ex: 11 99999-9999"
@@ -177,7 +186,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="cpf">CPF/CNPJ</label>
-            <input
+            <Input
               id="cpf"
               name="cpf"
               placeholder="Ex: 123.456.789-00"
@@ -187,7 +196,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="gender">Gênero</label>
-            <input
+            <Input
               id="gender"
               name="gender"
               placeholder="Ex: Feminino"
@@ -196,14 +205,14 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             />
           </div>
         </div>
-      </section>
+      </Card>
 
-      <section>
-        <h2 className="font-semibold mb-2">Endereço</h2>
+      <Card>
+        <h2 className="font-semibold mb-4">Endereço</h2>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
             <label htmlFor="street">Rua</label>
-            <input
+            <Input
               id="street"
               name="street"
               placeholder="Ex: Av. Paulista, 1000"
@@ -213,7 +222,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="city">Cidade</label>
-            <input
+            <Input
               id="city"
               name="city"
               placeholder="Ex: São Paulo"
@@ -223,7 +232,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="state">Estado</label>
-            <input
+            <Input
               id="state"
               name="state"
               placeholder="Ex: SP"
@@ -233,7 +242,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="zip">CEP</label>
-            <input
+            <Input
               id="zip"
               name="zip"
               placeholder="Ex: 01234-567"
@@ -242,14 +251,14 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             />
           </div>
         </div>
-      </section>
+      </Card>
 
-      <section>
-        <h2 className="font-semibold mb-2">Informações profissionais</h2>
+      <Card>
+        <h2 className="font-semibold mb-4">Informações profissionais</h2>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
             <label htmlFor="position">Cargo</label>
-            <input
+            <Input
               id="position"
               name="position"
               placeholder="Ex: Analista de RH"
@@ -259,23 +268,34 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="department">Departamento</label>
-            <select
-              id="department"
-              name="department"
-              value={form.department}
-              onChange={handleChange}
-            >
-              <option value="">Selecione</option>
-              {departments.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2">
+              <select
+                id="department"
+                name="department"
+                value={form.department}
+                onChange={handleChange}
+                className="border p-2 rounded flex-1"
+              >
+                <option value="">Selecione</option>
+                {departments.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setDeptOpen(true)}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="flex flex-col">
             <label htmlFor="salary">Salário</label>
-            <input
+            <Input
               id="salary"
               name="salary"
               placeholder="Ex: 3500"
@@ -285,7 +305,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="hire_date">Data de admissão</label>
-            <input
+            <Input
               id="hire_date"
               name="hire_date"
               type="date"
@@ -300,6 +320,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               name="status"
               value={form.status}
               onChange={handleChange}
+              className="border p-2 rounded"
             >
               <option value="active">Ativo</option>
               <option value="inactive">Inativo</option>
@@ -307,14 +328,14 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             </select>
           </div>
         </div>
-      </section>
+      </Card>
 
-      <section>
-        <h2 className="font-semibold mb-2">Contato de emergência</h2>
+      <Card>
+        <h2 className="font-semibold mb-4">Contato de emergência</h2>
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
             <label htmlFor="emergency_contact_name">Nome</label>
-            <input
+            <Input
               id="emergency_contact_name"
               name="emergency_contact_name"
               placeholder="Ex: Maria Silva"
@@ -324,7 +345,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="emergency_contact_phone">Telefone</label>
-            <input
+            <Input
               id="emergency_contact_phone"
               name="emergency_contact_phone"
               placeholder="Ex: 11 98888-7777"
@@ -334,7 +355,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
           </div>
           <div className="flex flex-col">
             <label htmlFor="emergency_contact_relation">Relação</label>
-            <input
+            <Input
               id="emergency_contact_relation"
               name="emergency_contact_relation"
               placeholder="Ex: Mãe"
@@ -343,14 +364,14 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             />
           </div>
         </div>
-      </section>
+      </Card>
 
-      <section>
-        <h2 className="font-semibold mb-2">Outros</h2>
+      <Card>
+        <h2 className="font-semibold mb-4">Outros</h2>
         <div className="grid gap-2">
           <div className="flex flex-col">
             <label htmlFor="resume_url">URL do currículo</label>
-            <input
+            <Input
               id="resume_url"
               name="resume_url"
               placeholder="https://exemplo.com/curriculo.pdf"
@@ -366,14 +387,25 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               placeholder="Observações adicionais"
               value={form.comments}
               onChange={handleChange}
+              className="border p-2 rounded"
             />
           </div>
         </div>
-      </section>
+      </Card>
 
       {Object.entries(customFieldDefs).length > 0 && (
-        <section>
-          <h2 className="font-semibold mb-2">Campos personalizados</h2>
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold">Campos personalizados</h2>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setFieldOpen(true)}
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             {Object.entries(customFieldDefs).map(([field, options]) => (
               <div key={field} className="flex flex-col">
@@ -382,6 +414,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
                   id={`cf-${field}`}
                   value={form.custom_fields[field] || ''}
                   onChange={(e) => handleCustomFieldChange(field, e.target.value)}
+                  className="border p-2 rounded"
                 >
                   <option value="">Selecione</option>
                   {options.map((opt) => (
@@ -393,10 +426,25 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               </div>
             ))}
           </div>
-        </section>
+        </Card>
       )}
 
-      <button type="submit">Salvar</button>
-    </form>
+        <Button type="submit">Salvar</Button>
+      </form>
+      <CustomFieldSidebar
+        open={fieldOpen}
+        onClose={() => {
+          setFieldOpen(false);
+          loadOptions();
+        }}
+      />
+      <DepartmentSidebar
+        open={deptOpen}
+        onClose={() => {
+          setDeptOpen(false);
+          loadOptions();
+        }}
+      />
+    </>
   );
 }
