@@ -166,14 +166,30 @@ export default function Employees() {
     switchView(created);
   };
 
+  const deleteView = async (id: string) => {
+    const target = views.find((v) => v.id === id);
+    if (!target || target.name === 'Principal') return;
+    if (!confirm('Excluir esta lista?')) return;
+    await supabase.from('employee_views').delete().eq('id', id);
+    setViews((vs) => vs.filter((v) => v.id !== id));
+    if (currentView?.id === id) {
+      const next = views.find((v) => v.id !== id) || null;
+      if (next) switchView(next);
+    }
+  };
+
   useEffect(() => {
     if (!currentView) return;
     supabase.from('employee_views').update({ columns }).eq('id', currentView.id);
-  }, [columns, currentView]);
+    setCurrentView((cv) => (cv ? { ...cv, columns } : cv));
+    setViews((vs) => vs.map((v) => (v.id === currentView.id ? { ...v, columns } : v)));
+  }, [columns, currentView?.id]);
   useEffect(() => {
     if (!filtersReady || !currentView) return;
     supabase.from('employee_views').update({ filters }).eq('id', currentView.id);
-  }, [filters, filtersReady, currentView]);
+    setCurrentView((cv) => (cv ? { ...cv, filters } : cv));
+    setViews((vs) => vs.map((v) => (v.id === currentView.id ? { ...v, filters } : v)));
+  }, [filters, filtersReady, currentView?.id]);
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
   const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
@@ -404,14 +420,23 @@ export default function Employees() {
       />
       <div className="mt-4 flex gap-2">
         {views.map((v) => (
-          <Button
-            key={v.id}
-            variant={currentView?.id === v.id ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => switchView(v)}
-          >
-            {v.name}
-          </Button>
+          <div key={v.id} className="relative">
+            <Button
+              variant={currentView?.id === v.id ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => switchView(v)}
+            >
+              {v.name}
+            </Button>
+            {v.name !== 'Principal' && (
+              <button
+                className="absolute -top-1 -right-1 bg-red-500 text-white rounded-full w-4 h-4 flex items-center justify-center text-xs"
+                onClick={() => deleteView(v.id)}
+              >
+                ×
+              </button>
+            )}
+          </div>
         ))}
         <Button variant="outline" size="sm" onClick={addView}>
           Nova lista

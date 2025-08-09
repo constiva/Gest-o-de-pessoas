@@ -87,6 +87,6 @@ Após registrar um usuário, ele será redirecionado para `/dashboard`.
 A página `/dashboard` exibe métricas simples de funcionários. A gestão de funcionários (CRUD, filtros e contadores) está em `/employees`.
 Nesta página é possível escolher quais colunas aparecem, filtrar múltiplos campos e usar o botão de reticências para visualizar, editar ou alterar o status do colaborador (com opção de ativar novamente). Tanto a lista filtrada quanto a ficha individual possuem um botão de impressão que respeita os campos selecionados.
 
-Cada usuário pode salvar colunas visíveis e filtros em múltiplas listas personalizadas. Essas configurações ficam armazenadas na tabela `employee_views` e são recarregadas automaticamente nas próximas sessões.
+Cada usuário pode salvar colunas visíveis e filtros em múltiplas listas personalizadas. Essas configurações ficam armazenadas na tabela `employee_views`, são recarregadas automaticamente nas próximas sessões e podem ser excluídas (com exceção da lista principal).
 
 As configurações de Departamentos e Campos personalizados podem ser acessadas por um modal com menu lateral para CRUD completo.
