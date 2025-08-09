@@ -61,3 +61,5 @@ create table public.employees (
 Após registrar um usuário, ele será redirecionado para `/dashboard`.
 
 A página `/dashboard` exibe métricas simples de funcionários. A gestão de funcionários (CRUD, filtros e contadores) está em `/employees`.
+
+

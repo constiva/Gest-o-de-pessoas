@@ -2,31 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 
-interface Employee {
-  id?: string;
-  name: string;
-  email: string;
-  phone: string;
-  cpf: string;
-  street: string;
-  city: string;
-  state: string;
-  zip: string;
-  position: string;
-  department: string;
-  salary: string;
-  hire_date: string;
-  status: string;
-  gender: string;
-  emergency_contact_name: string;
-  emergency_contact_phone: string;
-  emergency_contact_relation: string;
-  resume_url: string;
-  comments: string;
-  company_id?: string;
-}
-
-const defaultEmployee: Employee = {
+const defaultEmployee = {
   name: '',
   email: '',
   phone: '',
@@ -48,19 +24,13 @@ const defaultEmployee: Employee = {
   comments: ''
 };
 
-export default function EmployeeForm({ employee }: { employee?: Employee }) {
-  const [form, setForm] = useState<Employee>(employee || defaultEmployee);
+export default function EmployeeForm({ employee }) {
+  const [form, setForm] = useState(employee || defaultEmployee);
   const router = useRouter();
   const isEdit = !!employee;
-  const [company, setCompany] = useState<any>(null);
+  const [company, setCompany] = useState(null);
 
   useEffect(() => {
-    setForm(employee || defaultEmployee);
-  }, [employee]);
-
-  useEffect(() => {
-
-
     const loadCompany = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
@@ -82,15 +52,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
     loadCompany();
   }, [router]);
 
-  const handleChange = (
-    e: React.ChangeEvent<
-      HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
-    >
-  ) => {
+  const handleChange = (e) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!company) return;
     const { count } = await supabase
@@ -98,16 +64,12 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
       .select('*', { count: 'exact', head: true })
       .eq('company_id', company.id)
       .eq('status', 'active');
-    if (
-      form.status === 'active' &&
-      count >= company.maxemployees &&
-      !(isEdit && employee && employee.status === 'active')
-    ) {
+    if (form.status === 'active' && count >= company.maxemployees && !(isEdit && employee.status === 'active')) {
       alert('Limite de funcionários atingido.');
       return;
     }
     const payload = { ...form, company_id: company.id };
-    if (isEdit && employee) {
+    if (isEdit) {
       await supabase.from('employees').update(payload).eq('id', employee.id);
     } else {
       await supabase.from('employees').insert(payload);

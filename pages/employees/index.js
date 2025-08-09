@@ -1,32 +1,25 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
-import EmployeeStats from '../../components/EmployeeStats';
 
-const allColumns = ['name', 'email', 'phone', 'department', 'position', 'status'];
-
-interface Employee {
-  id: string;
-  [key: string]: any;
-}
-
-interface Filter {
-  field: string;
-  value: string;
-}
+const allColumns = [
+  'name',
+  'email',
+  'phone',
+  'department',
+  'position',
+  'status'
+];
 
 export default function Employees() {
-  const [employees, setEmployees] = useState<Employee[]>([]);
-  const [columns, setColumns] = useState<string[]>(allColumns);
-  const [filters, setFilters] = useState<Filter[]>([]);
+  const [employees, setEmployees] = useState([]);
+  const [columns, setColumns] = useState(allColumns);
+  const [filters, setFilters] = useState([]);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [field, setField] = useState('name');
   const [value, setValue] = useState('');
-  const router = useRouter();
 
-
-  const refreshCounts = (data: Employee[]) => {
+  const refreshCounts = (data) => {
     const active = data.filter((e) => e.status === 'active').length;
     const inactive = data.filter((e) => e.status === 'inactive').length;
     const dismissed = data.filter((e) => e.status === 'dismissed').length;
@@ -68,11 +61,11 @@ export default function Employees() {
     }
   };
 
-  const removeFilter = (i: number) => {
+  const removeFilter = (i) => {
     setFilters(filters.filter((_, idx) => idx !== i));
   };
 
-  const updateStatus = async (id: string, status: string) => {
+  const updateStatus = async (id, status) => {
     await supabase.from('employees').update({ status }).eq('id', id);
     const newEmployees = employees.map((emp) =>
       emp.id === id ? { ...emp, status } : emp
@@ -88,11 +81,10 @@ export default function Employees() {
   return (
     <div>
       <h1>Funcionários</h1>
-      <EmployeeStats
-        active={counts.active}
-        inactive={counts.inactive}
-        dismissed={counts.dismissed}
-      />
+      <div>
+        <span>Ativos: {counts.active}</span> | <span>Inativos: {counts.inactive}</span> |{' '}
+        <span>Desligados: {counts.dismissed}</span>
+      </div>
       <div>
         <select value={field} onChange={(e) => setField(e.target.value)}>
           {allColumns.map((c) => (
@@ -145,7 +137,6 @@ export default function Employees() {
                 <td key={c}>{emp[c]}</td>
               ))}
               <td>
-                <button onClick={() => router.push(`/employees/${emp.id}`)}>Editar</button>{' '}
                 <Link href={`/employees/${emp.id}`}>Editar</Link>{' '}
                 <button onClick={() => updateStatus(emp.id, 'inactive')}>Inativar</button>{' '}
                 <button onClick={() => updateStatus(emp.id, 'dismissed')}>Desligar</button>
