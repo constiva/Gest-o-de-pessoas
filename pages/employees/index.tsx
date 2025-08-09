@@ -3,6 +3,8 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 import EmployeeStats from '../../components/EmployeeStats';
+import Layout from '../../components/Layout';
+import { Button } from '../../components/ui/button';
 
 interface Employee {
   id: string;
@@ -108,9 +110,18 @@ export default function Employees() {
   };
 
   const updateStatus = async (id: string, status: string) => {
-    await supabase.from('employees').update({ status }).eq('id', id);
+    const updates: any = { status };
+    if (status === 'dismissed') {
+      const reason = prompt('Motivo do desligamento?') || '';
+      const date =
+        prompt('Data do desligamento (YYYY-MM-DD)?') ||
+        new Date().toISOString().slice(0, 10);
+      updates.termination_date = date;
+      updates.termination_reason = reason;
+    }
+    await supabase.from('employees').update(updates).eq('id', id);
     const newEmployees = employees.map((emp) =>
-      emp.id === id ? { ...emp, status } : emp
+      emp.id === id ? { ...emp, ...updates } : emp
     );
     setEmployees(newEmployees);
     refreshCounts(newEmployees);
@@ -145,28 +156,40 @@ export default function Employees() {
   };
 
   return (
-    <div>
-      <h1>Funcionários</h1>
+    <Layout>
+      <h1 className="text-2xl font-bold mb-4">Funcionários</h1>
       <EmployeeStats
         active={counts.active}
         inactive={counts.inactive}
         dismissed={counts.dismissed}
       />
-      <div>
-        <select value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+      <div className="mt-4 flex flex-wrap items-center gap-2">
+        <select
+          className="border p-1"
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value as any)}
+        >
           <option value="standard">Campo padrão</option>
           <option value="custom">Campo personalizado</option>
         </select>
         {filterType === 'standard' ? (
           <>
-            <select value={field} onChange={(e) => setField(e.target.value)}>
+            <select
+              className="border p-1"
+              value={field}
+              onChange={(e) => setField(e.target.value)}
+            >
               {allColumns.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
               ))}
             </select>
-            <select value={value} onChange={(e) => setValue(e.target.value)}>
+            <select
+              className="border p-1"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            >
               <option value="">valor</option>
               {valueOptions.map((v) => (
                 <option key={v} value={v}>
@@ -178,6 +201,7 @@ export default function Employees() {
         ) : (
           <>
             <select
+              className="border p-1"
               value={customFieldName}
               onChange={(e) => {
                 setCustomFieldName(e.target.value);
@@ -192,6 +216,7 @@ export default function Employees() {
               ))}
             </select>
             <select
+              className="border p-1"
               value={customFieldValue}
               onChange={(e) => setCustomFieldValue(e.target.value)}
             >
@@ -204,85 +229,91 @@ export default function Employees() {
             </select>
           </>
         )}
-        <button onClick={addFilter} disabled={filterType === 'standard' ? !value : !customFieldValue}>
+        <Button
+          onClick={addFilter}
+          disabled={filterType === 'standard' ? !value : !customFieldValue}
+        >
           Adicionar filtro
-        </button>
+        </Button>
       </div>
-      <div>
-        {filters.map((f, i) => (
-          <span key={i} style={{ marginRight: 8 }}>
-            {`${f.field}:${f.value}`}
-            <button onClick={() => removeFilter(i)}>x</button>
-          </span>
-        ))}
+      <div className="mt-2 space-x-2">
+          {filters.map((f, i) => (
+            <span key={i} className="bg-purple-50 p-1 rounded">
+              {`${f.field}:${f.value}`}
+              <button className="ml-1" onClick={() => removeFilter(i)}>
+                x
+              </button>
+            </span>
+          ))}
       </div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-        }}
-      >
-        <h2>Lista dos funcionários</h2>
+      <div className="flex justify-between items-center mt-4">
+        <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
         <details>
-          <summary>Colunas</summary>
+          <summary className="cursor-pointer">Colunas</summary>
           {allColumns.map((c) => (
-            <label key={c} style={{ display: 'block' }}>
+            <label key={c} className="block">
               <input
                 type="checkbox"
+                className="mr-2"
                 checked={columns.includes(c)}
                 onChange={(e) =>
                   setColumns(
-                    e.target.checked ? [...columns, c] : columns.filter((col) => col !== c)
+                    e.target.checked
+                      ? [...columns, c]
+                      : columns.filter((col) => col !== c)
                   )
                 }
-              />{' '}
+              />
               {c}
             </label>
           ))}
         </details>
       </div>
-      <div>
-        <Link href="/employees/new">+ Adicionar Funcionário</Link>{' '}
-        <Link href="/employees/config">Configurações</Link>{' '}
-        <button onClick={printList}>Imprimir</button>
+      <div className="my-4 space-x-4">
+        <Link href="/employees/new" className="text-brand hover:underline">
+          + Adicionar Funcionário
+        </Link>
+        <Link href="/employees/config" className="text-brand hover:underline">
+          Configurações
+        </Link>
+        <Button variant="outline" onClick={printList}>
+          Imprimir
+        </Button>
       </div>
-      <table border="1" cellPadding="4">
-        <thead>
+      <table className="w-full border border-purple-100 text-sm">
+        <thead className="bg-purple-50">
           <tr>
             {columns.map((c) => (
-              <th key={c}>{c}</th>
+              <th key={c} className="border p-2">
+                {c}
+              </th>
             ))}
-            <th>Ações</th>
+            <th className="border p-2">Ações</th>
           </tr>
         </thead>
         <tbody>
           {filtered.map((emp) => (
-            <tr key={emp.id}>
+            <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
               {columns.map((c) => (
-                <td key={c}>{emp[c]}</td>
+                <td key={c} className="border p-2">
+                  {emp[c]}
+                </td>
               ))}
-              <td style={{ position: 'relative' }}>
-                <button
+              <td className="border p-2 relative">
+                <Button
+                  variant="outline"
+                  size="sm"
                   onClick={() =>
                     setOpenActions(openActions === emp.id ? null : emp.id)
                   }
                 >
                   ...
-                </button>
+                </Button>
                 {openActions === emp.id && (
-                  <div
-                    style={{
-                      position: 'absolute',
-                      right: 0,
-                      background: '#fff',
-                      border: '1px solid #ccc',
-                      padding: 4,
-                      zIndex: 1,
-                    }}
-                  >
+                  <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
                     <div>
                       <button
+                        className="text-left text-sm text-brand hover:underline"
                         onClick={() => {
                           setOpenActions(null);
                           router.push(`/employees/view/${emp.id}`);
@@ -293,6 +324,7 @@ export default function Employees() {
                     </div>
                     <div>
                       <button
+                        className="text-left text-sm text-brand hover:underline"
                         onClick={() => {
                           setOpenActions(null);
                           router.push(`/employees/${emp.id}`);
@@ -304,12 +336,18 @@ export default function Employees() {
                     {emp.status === 'active' ? (
                       <>
                         <div>
-                          <button onClick={() => updateStatus(emp.id, 'inactive')}>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => updateStatus(emp.id, 'inactive')}
+                          >
                             Inativar
                           </button>
                         </div>
                         <div>
-                          <button onClick={() => updateStatus(emp.id, 'dismissed')}>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => updateStatus(emp.id, 'dismissed')}
+                          >
                             Desligar
                           </button>
                         </div>
@@ -317,19 +355,28 @@ export default function Employees() {
                     ) : emp.status === 'inactive' ? (
                       <>
                         <div>
-                          <button onClick={() => updateStatus(emp.id, 'active')}>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => updateStatus(emp.id, 'active')}
+                          >
                             Ativar
                           </button>
                         </div>
                         <div>
-                          <button onClick={() => updateStatus(emp.id, 'dismissed')}>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => updateStatus(emp.id, 'dismissed')}
+                          >
                             Desligar
                           </button>
                         </div>
                       </>
                     ) : (
                       <div>
-                        <button onClick={() => updateStatus(emp.id, 'active')}>
+                        <button
+                          className="text-left text-sm text-brand hover:underline"
+                          onClick={() => updateStatus(emp.id, 'active')}
+                        >
                           Ativar
                         </button>
                       </div>
@@ -341,6 +388,6 @@ export default function Employees() {
           ))}
         </tbody>
       </table>
-    </div>
+    </Layout>
   );
 }

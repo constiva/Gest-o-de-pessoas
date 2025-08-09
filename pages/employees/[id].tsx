@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import EmployeeForm from '../../components/EmployeeForm';
 import { supabase } from '../../lib/supabaseClient';
+import Layout from '../../components/Layout';
 
 export default function EditEmployee() {
   const router = useRouter();
@@ -22,5 +23,9 @@ export default function EditEmployee() {
   }, [id]);
 
   if (!employee) return <p>Carregando...</p>;
-  return <EmployeeForm employee={employee} />;
+  return (
+    <Layout>
+      <EmployeeForm employee={employee} />
+    </Layout>
+  );
 }

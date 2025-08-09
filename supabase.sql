@@ -31,6 +31,7 @@ create table public.employees (
   salary numeric,
   hire_date date,
   termination_date date,
+  termination_reason text,
   status text check (status in ('active','inactive','dismissed')) default 'active',
   gender text,
   emergency_contact_name text,

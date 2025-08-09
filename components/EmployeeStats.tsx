@@ -6,10 +6,10 @@ interface Props {
 
 export default function EmployeeStats({ active, inactive, dismissed }: Props) {
   return (
-    <div>
-      <p>Funcionários ativos: {active}</p>
-      <p>Funcionários inativos: {inactive}</p>
-      <p>Funcionários desligados: {dismissed}</p>
+    <div className="flex space-x-4 mb-4">
+      <p className="text-sm">Funcionários ativos: {active}</p>
+      <p className="text-sm">Funcionários inativos: {inactive}</p>
+      <p className="text-sm">Funcionários desligados: {dismissed}</p>
     </div>
   );
 }

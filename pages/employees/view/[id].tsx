@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../../lib/supabaseClient';
+import Layout from '../../../components/Layout';
 
 export default function ViewEmployee() {
   const router = useRouter();
@@ -62,14 +63,15 @@ export default function ViewEmployee() {
   };
 
   return (
-    <div>
-      <h1>Ficha do Funcionário</h1>
-      <details>
-        <summary>Campos</summary>
+    <Layout>
+      <h1 className="text-2xl font-bold mb-4">Ficha do Funcionário</h1>
+      <details className="mb-4">
+        <summary className="cursor-pointer">Campos</summary>
         {allFields.map((f) => (
-          <label key={f} style={{ display: 'block' }}>
+          <label key={f} className="block">
             <input
               type="checkbox"
+              className="mr-2"
               checked={fields.includes(f)}
               onChange={(e) =>
                 setFields(
@@ -78,22 +80,24 @@ export default function ViewEmployee() {
                     : fields.filter((x) => x !== f)
                 )
               }
-            />{' '}
+            />
             {f}
           </label>
         ))}
       </details>
-      <button onClick={printDetail}>Imprimir</button>
-      <table border="1" cellPadding="4">
+      <button className="border px-2 mb-4" onClick={printDetail}>
+        Imprimir
+      </button>
+      <table className="w-full border border-purple-100 text-sm">
         <tbody>
           {entries.map(([k, v]) => (
-            <tr key={k}>
-              <td>{k}</td>
-              <td>{String(v)}</td>
+            <tr key={k} className="odd:bg-white even:bg-purple-50/40">
+              <td className="border p-2 font-medium">{k}</td>
+              <td className="border p-2">{String(v)}</td>
             </tr>
           ))}
         </tbody>
       </table>
-    </div>
+    </Layout>
   );
 }

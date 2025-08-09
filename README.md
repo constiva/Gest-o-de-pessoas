@@ -7,6 +7,7 @@ Projeto inicial de SaaS usando Next.js e TypeScript com autenticação via Supab
 1. Copie `.env.example` para `.env.local` e preencha as variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
 2. Instale as dependências com `npm install`.
 3. Execute o servidor de desenvolvimento com `npm run dev`.
+4. O projeto usa TailwindCSS e componentes do [shadcn/ui](https://ui.shadcn.com/) para uma interface limpa com tons de roxo e branco.
 
 ## Esquema no Supabase
 
@@ -46,6 +47,7 @@ create table public.employees (
   salary numeric,
   hire_date date,
   termination_date date,
+  termination_reason text,
   status text check (status in ('active','inactive','dismissed')) default 'active',
   gender text,
   emergency_contact_name text,

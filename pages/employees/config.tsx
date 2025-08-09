@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
+import Layout from '../../components/Layout';
 
 interface CustomField {
   id: string;
@@ -99,51 +100,63 @@ export default function EmployeesConfig() {
   };
 
   return (
-    <div>
-      <h1>Campos Personalizados</h1>
-      <div>
+    <Layout>
+      <h1 className="text-2xl font-bold mb-4">Campos Personalizados</h1>
+      <div className="space-x-2 mb-4">
         <input
+          className="border p-1"
           placeholder="Campo"
           value={field}
           onChange={(e) => setField(e.target.value)}
         />
         <input
+          className="border p-1"
           placeholder="Valor"
           value={value}
           onChange={(e) => setValue(e.target.value)}
         />
-        <button onClick={add} disabled={!field || !value}>
+        <button className="border px-2" onClick={add} disabled={!field || !value}>
           Adicionar
         </button>
       </div>
-      <table border="1" cellPadding="4">
-        <thead>
+      <table className="w-full border border-purple-100 mb-6 text-sm">
+        <thead className="bg-purple-50">
           <tr>
-            <th>Campo</th>
-            <th>Valor</th>
-            <th>Ações</th>
+            <th className="border p-2">Campo</th>
+            <th className="border p-2">Valor</th>
+            <th className="border p-2">Ações</th>
           </tr>
         </thead>
         <tbody>
           {fields.map((cf) => (
             <tr key={cf.id}>
-              <td>
+              <td className="border p-2">
                 <input
+                  className="border p-1 w-full"
                   value={cf.field}
                   onChange={(e) =>
-                    setFields(fields.map((f) => (f.id === cf.id ? { ...f, field: e.target.value } : f)))
+                    setFields(
+                      fields.map((f) =>
+                        f.id === cf.id ? { ...f, field: e.target.value } : f
+                      )
+                    )
                   }
                 />
               </td>
-              <td>
+              <td className="border p-2">
                 <input
+                  className="border p-1 w-full"
                   value={cf.value}
                   onChange={(e) =>
-                    setFields(fields.map((f) => (f.id === cf.id ? { ...f, value: e.target.value } : f)))
+                    setFields(
+                      fields.map((f) =>
+                        f.id === cf.id ? { ...f, value: e.target.value } : f
+                      )
+                    )
                   }
                 />
               </td>
-              <td>
+              <td className="border p-2 space-x-2">
                 <button onClick={() => save(cf)}>Salvar</button>
                 <button onClick={() => remove(cf.id)}>Excluir</button>
               </td>
@@ -151,36 +164,42 @@ export default function EmployeesConfig() {
           ))}
         </tbody>
       </table>
-      <h1>Departamentos</h1>
-      <div>
+      <h1 className="text-2xl font-bold mb-4">Departamentos</h1>
+      <div className="space-x-2 mb-4">
         <input
+          className="border p-1"
           placeholder="Nome"
           value={deptName}
           onChange={(e) => setDeptName(e.target.value)}
         />
-        <button onClick={addDept} disabled={!deptName}>
+        <button className="border px-2" onClick={addDept} disabled={!deptName}>
           Adicionar
         </button>
       </div>
-      <table border="1" cellPadding="4">
-        <thead>
+      <table className="w-full border border-purple-100 text-sm">
+        <thead className="bg-purple-50">
           <tr>
-            <th>Nome</th>
-            <th>Ações</th>
+            <th className="border p-2">Nome</th>
+            <th className="border p-2">Ações</th>
           </tr>
         </thead>
         <tbody>
           {departments.map((d) => (
             <tr key={d.id}>
-              <td>
+              <td className="border p-2">
                 <input
+                  className="border p-1 w-full"
                   value={d.name}
                   onChange={(e) =>
-                    setDepartments(departments.map((dep) => (dep.id === d.id ? { ...dep, name: e.target.value } : dep)))
+                    setDepartments(
+                      departments.map((dep) =>
+                        dep.id === d.id ? { ...dep, name: e.target.value } : dep
+                      )
+                    )
                   }
                 />
               </td>
-              <td>
+              <td className="border p-2 space-x-2">
                 <button onClick={() => saveDept(d)}>Salvar</button>
                 <button onClick={() => removeDept(d.id)}>Excluir</button>
               </td>
@@ -188,6 +207,6 @@ export default function EmployeesConfig() {
           ))}
         </tbody>
       </table>
-    </div>
+    </Layout>
   );
 }

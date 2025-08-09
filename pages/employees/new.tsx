@@ -1,5 +1,10 @@
 import EmployeeForm from '../../components/EmployeeForm';
+import Layout from '../../components/Layout';
 
 export default function NewEmployee() {
-  return <EmployeeForm />;
+  return (
+    <Layout>
+      <EmployeeForm />
+    </Layout>
+  );
 }
