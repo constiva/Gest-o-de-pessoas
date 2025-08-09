@@ -438,9 +438,9 @@ export default function Employees() {
         inactive={counts.inactive}
         dismissed={counts.dismissed}
       />
-      <div className="mt-4 flex gap-2">
+      <ul className="mt-4 flex flex-wrap gap-2">
         {views.map((v) => (
-          <div key={v.id} className="relative">
+          <li key={v.id} className="relative">
             <Button
               variant={currentView?.id === v.id ? 'default' : 'outline'}
               size="sm"
@@ -450,19 +450,21 @@ export default function Employees() {
             </Button>
             {v.name !== 'Principal' && (
               <button
-                className="absolute -top-1 -right-1 text-xs text-gray-400 hover:text-red-500"
+                className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 hover:bg-red-500 hover:text-white"
                 onClick={() => deleteView(v.id)}
                 aria-label="Excluir"
               >
                 ×
               </button>
             )}
-          </div>
+          </li>
         ))}
-        <Button variant="outline" size="sm" onClick={addView}>
-          Nova lista
-        </Button>
-      </div>
+        <li>
+          <Button variant="outline" size="sm" onClick={addView}>
+            Nova lista
+          </Button>
+        </li>
+      </ul>
       <div className="flex justify-between items-center mt-4 relative">
         <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
         <div className="flex items-center gap-2">
@@ -665,9 +667,9 @@ export default function Employees() {
         <table className="min-w-full border border-purple-100 text-sm border-collapse">
           <thead className="bg-purple-50">
             <tr>
-              <th className="border px-2 py-1">Ações</th>
+              <th className="border px-2 py-1 text-center">Ações</th>
               {columns.map((c) => (
-                <th key={c} className="border px-2 py-1">
+                <th key={c} className="border px-2 py-1 text-center">
                   {getFieldLabel(c)}
                 </th>
               ))}
@@ -676,7 +678,7 @@ export default function Employees() {
           <tbody>
             {filtered.map((emp) => (
               <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
-                <td className="border px-2 py-1">
+                <td className="border px-2 py-1 text-center">
                   <div className="relative actions-menu">
                     <Button
                       variant="outline"
@@ -778,7 +780,7 @@ export default function Employees() {
                   </div>
                 </td>
                 {columns.map((c) => (
-                  <td key={c} className="border px-2 py-1">
+                  <td key={c} className="border px-2 py-1 text-center">
                     {emp[c]}
                   </td>
                 ))}
