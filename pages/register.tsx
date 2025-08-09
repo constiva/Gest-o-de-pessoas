@@ -2,6 +2,9 @@ import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import { Input } from '../components/ui/input';
+import { UserPlus } from 'lucide-react';
 
 interface SignUpForm {
   companyName: string;
@@ -72,21 +75,25 @@ export default function Register() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-purple-50">
-      <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow w-full max-w-md space-y-2">
-        <h1 className="text-2xl font-bold text-center mb-4">Registrar empresa</h1>
-        <input name="companyName" placeholder="Empresa" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="plan" placeholder="Plano" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="maxEmployees" placeholder="Máx. funcionários" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="name" placeholder="Seu nome" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="phone" placeholder="Telefone" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="email" placeholder="Email" onChange={handleChange} className="w-full border p-2 rounded" />
-        <input name="password" type="password" placeholder="Senha" onChange={handleChange} className="w-full border p-2 rounded" />
-        <Button type="submit" className="w-full">Registrar</Button>
+    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+      <Card className="w-full max-w-md space-y-4">
+        <h1 className="text-2xl font-bold text-center flex items-center justify-center gap-2">
+          <UserPlus className="h-6 w-6" /> Registrar empresa
+        </h1>
+        <form onSubmit={handleSubmit} className="space-y-3">
+          <Input name="companyName" placeholder="Empresa" onChange={handleChange} />
+          <Input name="plan" placeholder="Plano" onChange={handleChange} />
+          <Input name="maxEmployees" placeholder="Máx. funcionários" onChange={handleChange} />
+          <Input name="name" placeholder="Seu nome" onChange={handleChange} />
+          <Input name="phone" placeholder="Telefone" onChange={handleChange} />
+          <Input name="email" placeholder="Email" onChange={handleChange} />
+          <Input name="password" type="password" placeholder="Senha" onChange={handleChange} />
+          <Button type="submit" className="w-full">Registrar</Button>
+        </form>
         <p className="text-center text-sm">
-          Já tem conta? <a href="/login" className="text-brand">Entrar</a>
+          Já tem conta? <a href="/login" className="text-brand hover:underline">Entrar</a>
         </p>
-      </form>
+      </Card>
     </div>
   );
 }

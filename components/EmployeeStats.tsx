@@ -1,3 +1,5 @@
+import { Users, UserMinus, UserX } from 'lucide-react';
+
 interface Props {
   active: number;
   inactive: number;
@@ -6,19 +8,39 @@ interface Props {
 
 export default function EmployeeStats({ active, inactive, dismissed }: Props) {
   const items = [
-    { label: 'Funcionários ativos', value: active },
-    { label: 'Funcionários inativos', value: inactive },
-    { label: 'Funcionários desligados', value: dismissed },
+    {
+      label: 'Funcionários ativos',
+      value: active,
+      icon: Users,
+      color: 'text-emerald-500',
+    },
+    {
+      label: 'Funcionários inativos',
+      value: inactive,
+      icon: UserMinus,
+      color: 'text-amber-500',
+    },
+    {
+      label: 'Funcionários desligados',
+      value: dismissed,
+      icon: UserX,
+      color: 'text-rose-500',
+    },
   ];
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 w-full max-w-2xl mx-auto">
-      {items.map((item) => (
+    <div className="grid gap-6 sm:grid-cols-3 w-full max-w-4xl mx-auto mb-8">
+      {items.map(({ label, value, icon: Icon, color }) => (
         <div
-          key={item.label}
-          className="bg-white shadow rounded p-4 text-center"
+          key={label}
+          className="flex items-center gap-4 p-6 bg-white dark:bg-gray-800 rounded-xl shadow-md"
         >
-          <p className="text-sm text-gray-500">{item.label}</p>
-          <p className="text-xl font-bold">{item.value}</p>
+          <div className={`p-3 rounded-lg bg-brand/10 ${color}`}>
+            <Icon className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 dark:text-gray-400">{label}</p>
+            <p className="text-2xl font-bold">{value}</p>
+          </div>
         </div>
       ))}
     </div>

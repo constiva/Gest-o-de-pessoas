@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
 import { getFieldLabel } from '../../lib/utils';
+import { Users } from 'lucide-react';
 
 const defaultViewCols = ['name','email','phone','cpf','position','department'];
 
@@ -446,8 +447,9 @@ export default function Employees() {
         dismissed={counts.dismissed}
       />
       <div className="flex justify-between items-center mt-4 relative">
-        <div className="flex items-center gap-2">
-          <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
+        <div className="flex items-center gap-3">
+          <Users className="h-5 w-5 text-brand" />
+          <h2 className="text-2xl font-semibold">Lista dos funcionários</h2>
           <select
             className="border rounded p-1"
             value={currentView?.id || ''}
