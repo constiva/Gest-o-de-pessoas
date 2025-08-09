@@ -438,35 +438,36 @@ export default function Employees() {
         inactive={counts.inactive}
         dismissed={counts.dismissed}
       />
-      <ul className="mt-4 flex flex-wrap gap-2">
-        {views.map((v) => (
-          <li key={v.id} className="relative">
-            <Button
-              variant={currentView?.id === v.id ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => switchView(v)}
-            >
-              {v.name}
-            </Button>
-            {v.name !== 'Principal' && (
-              <button
-                className="absolute -top-2 -right-2 w-5 h-5 flex items-center justify-center rounded-full bg-white border border-gray-300 text-gray-600 hover:bg-red-500 hover:text-white"
-                onClick={() => deleteView(v.id)}
-                aria-label="Excluir"
-              >
-                ×
-              </button>
-            )}
-          </li>
-        ))}
-        <li>
+      <div className="flex justify-between items-center mt-4 relative">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
+          <select
+            className="border rounded p-1"
+            value={currentView?.id || ''}
+            onChange={(e) => {
+              const v = views.find((view) => view.id === e.target.value);
+              if (v) switchView(v);
+            }}
+          >
+            {views.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.name}
+              </option>
+            ))}
+          </select>
           <Button variant="outline" size="sm" onClick={addView}>
             Nova lista
           </Button>
-        </li>
-      </ul>
-      <div className="flex justify-between items-center mt-4 relative">
-        <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
+          {currentView && currentView.name !== 'Principal' && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => deleteView(currentView.id)}
+            >
+              Excluir
+            </Button>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -663,7 +664,7 @@ export default function Employees() {
           ))}
         </div>
       )}
-      <div className="mt-4 w-full overflow-x-auto">
+      <div className="mt-4 w-full overflow-x-auto overflow-y-visible">
         <table className="min-w-full border border-purple-100 text-sm border-collapse">
           <thead className="bg-purple-50">
             <tr>
@@ -690,7 +691,7 @@ export default function Employees() {
                       ...
                     </Button>
                     {openActions === emp.id && (
-                      <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
+                      <div className="absolute right-0 bg-white border p-2 z-50 space-y-1">
                         <div>
                           <button
                             className="text-left text-sm text-brand hover:underline"
