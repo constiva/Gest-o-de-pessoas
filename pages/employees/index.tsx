@@ -17,8 +17,11 @@ interface Employee {
 
 interface Filter {
   field: string;
-  value: string;
+  value?: string;
   custom?: boolean;
+  min?: string;
+  max?: string;
+  type?: 'text' | 'range' | 'equal';
 }
 
 export default function Employees() {
@@ -29,6 +32,9 @@ export default function Employees() {
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
+  const [textValue, setTextValue] = useState('');
+  const [rangeStart, setRangeStart] = useState('');
+  const [rangeEnd, setRangeEnd] = useState('');
   const [valueOptions, setValueOptions] = useState<string[]>([]);
   const [filterType, setFilterType] = useState<'standard' | 'custom'>('standard');
   const [customFieldName, setCustomFieldName] = useState('');
@@ -38,6 +44,12 @@ export default function Employees() {
   const [showColumns, setShowColumns] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [viewId, setViewId] = useState<string | null>(null);
+  const [showPrint, setShowPrint] = useState(false);
+  const [dismissId, setDismissId] = useState<string | null>(null);
+  const [dismissDate, setDismissDate] = useState(
+    new Date().toISOString().slice(0, 10)
+  );
+  const [dismissReason, setDismissReason] = useState('');
   const router = useRouter();
 
   const refreshCounts = (data: Employee[]) => {
@@ -91,22 +103,50 @@ export default function Employees() {
     }
   }, [columns]);
 
+  const isTextField = (f: string) => ['name', 'email'].includes(f);
+  const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
+
   useEffect(() => {
-    if (filterType === 'standard') {
+    if (filterType === 'standard' && !isTextField(field) && !isRangeField(field)) {
       const opts = Array.from(
-        new Set(employees.map((e) => e[field]).filter((v) => v !== undefined && v !== null))
+        new Set(
+          employees
+            .map((e) => e[field])
+            .filter((v) => v !== undefined && v !== null)
+        )
       );
       setValueOptions(opts);
       if (!opts.includes(value)) setValue('');
+    } else {
+      setValueOptions([]);
+      setValue('');
     }
+    setTextValue('');
+    setRangeStart('');
+    setRangeEnd('');
   }, [field, employees, filterType]);
 
   const addFilter = () => {
-    if (filterType === 'standard' && value) {
-      setFilters([...filters, { field, value }]);
-      setValue('');
-    } else if (filterType === 'custom' && customFieldName && customFieldValue) {
-      setFilters([...filters, { field: customFieldName, value: customFieldValue, custom: true }]);
+    if (filterType === 'standard') {
+      if (isTextField(field) && textValue) {
+        setFilters([...filters, { field, value: textValue, type: 'text' }]);
+        setTextValue('');
+      } else if (isRangeField(field) && (rangeStart || rangeEnd)) {
+        setFilters([
+          ...filters,
+          { field, min: rangeStart, max: rangeEnd, type: 'range' },
+        ]);
+        setRangeStart('');
+        setRangeEnd('');
+      } else if (value) {
+        setFilters([...filters, { field, value, type: 'equal' }]);
+        setValue('');
+      }
+    } else if (customFieldName && customFieldValue) {
+      setFilters([
+        ...filters,
+        { field: customFieldName, value: customFieldValue, custom: true },
+      ]);
       setCustomFieldName('');
       setCustomFieldValue('');
     }
@@ -118,14 +158,6 @@ export default function Employees() {
 
   const updateStatus = async (id: string, status: string) => {
     const updates: any = { status };
-    if (status === 'dismissed') {
-      const reason = prompt('Motivo do desligamento?') || '';
-      const date =
-        prompt('Data do desligamento (YYYY-MM-DD)?') ||
-        new Date().toISOString().slice(0, 10);
-      updates.termination_date = date;
-      updates.termination_reason = reason;
-    }
     await supabase.from('employees').update(updates).eq('id', id);
     const newEmployees = employees.map((emp) =>
       emp.id === id ? { ...emp, ...updates } : emp
@@ -135,15 +167,113 @@ export default function Employees() {
     setOpenActions(null);
   };
 
+  const confirmDismiss = async () => {
+    if (!dismissId) return;
+    const updates: any = {
+      status: 'dismissed',
+      termination_date: dismissDate,
+      termination_reason: dismissReason,
+    };
+    await supabase.from('employees').update(updates).eq('id', dismissId);
+    const newEmployees = employees.map((emp) =>
+      emp.id === dismissId ? { ...emp, ...updates } : emp
+    );
+    setEmployees(newEmployees);
+    refreshCounts(newEmployees);
+    setDismissId(null);
+    setDismissReason('');
+  };
+
   const filtered = employees.filter((emp) =>
-    filters.every((f) =>
-      f.custom ? emp.custom_fields?.[f.field] === f.value : emp[f.field] === f.value
-    )
+    filters.every((f) => {
+      const fieldValue = f.custom
+        ? emp.custom_fields?.[f.field]
+        : emp[f.field];
+      if (f.type === 'text') {
+        return String(fieldValue || '')
+          .toLowerCase()
+          .includes((f.value || '').toLowerCase());
+      } else if (f.type === 'range') {
+        if (!fieldValue) return false;
+        const val = f.field.includes('date')
+          ? String(fieldValue)
+          : parseFloat(fieldValue);
+        if (f.min) {
+          const min = f.field.includes('date') ? f.min : parseFloat(f.min);
+          if (val < min) return false;
+        }
+        if (f.max) {
+          const max = f.field.includes('date') ? f.max : parseFloat(f.max);
+          if (val > max) return false;
+        }
+        return true;
+      } else {
+        return fieldValue === f.value;
+      }
+    })
   );
 
+  const generateProfileHTML = (emp: any, fields: string[]) => {
+    const groups = [
+      {
+        title: 'Informações pessoais',
+        fields: ['name', 'email', 'phone', 'cpf', 'gender'],
+      },
+      { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
+      {
+        title: 'Informações profissionais',
+        fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+      },
+      {
+        title: 'Contato de emergência',
+        fields: [
+          'emergency_contact_name',
+          'emergency_contact_phone',
+          'emergency_contact_relation',
+        ],
+      },
+      {
+        title: 'Outros',
+        fields: ['resume_url', 'comments'],
+      },
+    ];
+    const customEntries = emp.custom_fields ? Object.entries(emp.custom_fields) : [];
+    const customFields = customEntries.filter(([k]) => fields.includes(k));
+    let html = `<div class="card"><h2>${emp.name || ''}</h2>`;
+    groups.forEach((g) => {
+      const rows = g.fields
+        .filter((f) => fields.includes(f) && emp[f])
+        .map(
+          (f) =>
+            `<tr><td class="label">${getFieldLabel(f)}</td><td>${emp[f]}</td></tr>`
+        )
+        .join('');
+      if (rows) {
+        html += `<h3>${g.title}</h3><table>${rows}</table>`;
+      }
+    });
+    if (customFields.length) {
+      const rows = customFields
+        .map(
+          ([k, v]) =>
+            `<tr><td class="label">${getFieldLabel(k)}</td><td>${v}</td></tr>`
+        )
+        .join('');
+      html += `<h3>Campos personalizados</h3><table>${rows}</table>`;
+    }
+    html += '</div>';
+    return html;
+  };
+
   const printList = () => {
-    const html = `<!DOCTYPE html><html><head><title>Funcionários</title></head><body>` +
-      `<table border="1" cellPadding="4"><thead><tr>` +
+    const html =
+      `<!DOCTYPE html><html><head><title>Funcionários</title><style>` +
+      `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px}` +
+      `th{background:#f3e8ff}h2{margin-top:0}` +
+      `.card{border:1px solid #ddd;padding:10px;margin-bottom:10px}` +
+      `.label{font-weight:bold;background:#f9f9f9}` +
+      `</style></head><body>` +
+      `<table><thead><tr>` +
       columns.map((c) => `<th>${getFieldLabel(c)}</th>`).join('') +
       `</tr></thead><tbody>` +
       filtered
@@ -155,6 +285,25 @@ export default function Employees() {
         )
         .join('') +
       `</tbody></table></body></html>`;
+    const w = window.open('', '', 'height=600,width=800');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.print();
+  };
+
+  const printProfiles = () => {
+    const html =
+      `<!DOCTYPE html><html><head><title>Fichas</title><style>` +
+      `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px}` +
+      `h2{margin:0 0 10px 0}h3{margin:10px 0 4px 0}` +
+      `.card{border:1px solid #ddd;padding:10px;margin-bottom:10px}` +
+      `.label{font-weight:bold;background:#f9f9f9}` +
+      `</style></head><body>` +
+      filtered
+        .map((emp) => generateProfileHTML(emp, columns))
+        .join('') +
+      `</body></html>`;
     const w = window.open('', '', 'height=600,width=800');
     if (!w) return;
     w.document.write(html);
@@ -192,18 +341,44 @@ export default function Employees() {
                 </option>
               ))}
             </select>
-            <select
-              className="border p-1"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-            >
-              <option value="">valor</option>
-              {valueOptions.map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
+            {isTextField(field) ? (
+              <input
+                className="border p-1"
+                value={textValue}
+                onChange={(e) => setTextValue(e.target.value)}
+                placeholder="texto"
+              />
+            ) : isRangeField(field) ? (
+              <>
+                <input
+                  className="border p-1 w-24"
+                  type={field === 'salary' ? 'number' : 'date'}
+                  value={rangeStart}
+                  onChange={(e) => setRangeStart(e.target.value)}
+                  placeholder="mín"
+                />
+                <input
+                  className="border p-1 w-24"
+                  type={field === 'salary' ? 'number' : 'date'}
+                  value={rangeEnd}
+                  onChange={(e) => setRangeEnd(e.target.value)}
+                  placeholder="máx"
+                />
+              </>
+            ) : (
+              <select
+                className="border p-1"
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+              >
+                <option value="">valor</option>
+                {valueOptions.map((v) => (
+                  <option key={v} value={v}>
+                    {v}
+                  </option>
+                ))}
+              </select>
+            )}
           </>
         ) : (
           <>
@@ -238,7 +413,15 @@ export default function Employees() {
         )}
         <Button
           onClick={addFilter}
-          disabled={filterType === 'standard' ? !value : !customFieldValue}
+          disabled={
+            filterType === 'standard'
+              ? isTextField(field)
+                ? !textValue
+                : isRangeField(field)
+                ? !rangeStart && !rangeEnd
+                : !value
+              : !customFieldValue
+          }
         >
           Adicionar filtro
         </Button>
@@ -246,7 +429,10 @@ export default function Employees() {
       <div className="mt-2 space-x-2">
         {filters.map((f, i) => (
           <span key={i} className="bg-purple-50 p-1 rounded">
-            {`${getFieldLabel(f.field)}:${f.value}`}
+            {`${getFieldLabel(f.field)}:`}
+            {f.type === 'range'
+              ? `${f.min || ''}-${f.max || ''}`
+              : f.value}
             <button className="ml-1" onClick={() => removeFilter(i)}>
               x
             </button>
@@ -296,9 +482,36 @@ export default function Employees() {
         >
           Configurações
         </button>
-        <Button variant="outline" onClick={printList}>
-          Imprimir
-        </Button>
+        <div className="relative">
+          <Button
+            variant="outline"
+            onClick={() => setShowPrint(!showPrint)}
+          >
+            Imprimir
+          </Button>
+          {showPrint && (
+            <div className="absolute right-0 mt-2 bg-white border p-2 z-20">
+              <button
+                className="block text-left w-full hover:underline text-sm"
+                onClick={() => {
+                  setShowPrint(false);
+                  printList();
+                }}
+              >
+                Lista
+              </button>
+              <button
+                className="block text-left w-full hover:underline text-sm"
+                onClick={() => {
+                  setShowPrint(false);
+                  printProfiles();
+                }}
+              >
+                Fichas
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       <table className="w-full border border-purple-100 text-sm">
         <thead className="bg-purple-50">
@@ -366,7 +579,12 @@ export default function Employees() {
                         <div>
                           <button
                             className="text-left text-sm text-brand hover:underline"
-                            onClick={() => updateStatus(emp.id, 'dismissed')}
+                            onClick={() => {
+                              setOpenActions(null);
+                              setDismissDate(new Date().toISOString().slice(0, 10));
+                              setDismissReason('');
+                              setDismissId(emp.id);
+                            }}
                           >
                             Desligar
                           </button>
@@ -385,7 +603,12 @@ export default function Employees() {
                         <div>
                           <button
                             className="text-left text-sm text-brand hover:underline"
-                            onClick={() => updateStatus(emp.id, 'dismissed')}
+                            onClick={() => {
+                              setOpenActions(null);
+                              setDismissDate(new Date().toISOString().slice(0, 10));
+                              setDismissReason('');
+                              setDismissId(emp.id);
+                            }}
                           >
                             Desligar
                           </button>
@@ -417,6 +640,42 @@ export default function Employees() {
       />
       {viewId && (
         <EmployeeViewModal id={viewId} onClose={() => setViewId(null)} />
+      )}
+      {dismissId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded p-4 w-full max-w-sm">
+            <h2 className="text-lg font-bold mb-2">Desligar Funcionário</h2>
+            <label className="block mb-2">
+              Data
+              <input
+                type="date"
+                className="border p-1 w-full"
+                value={dismissDate}
+                onChange={(e) => setDismissDate(e.target.value)}
+              />
+            </label>
+            <label className="block mb-4">
+              Motivo
+              <textarea
+                className="border p-1 w-full"
+                value={dismissReason}
+                onChange={(e) => setDismissReason(e.target.value)}
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDismissId(null)}>
+                Cancelar
+              </Button>
+              <Button
+                onClick={async () => {
+                  await confirmDismiss();
+                }}
+              >
+                Confirmar
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </Layout>
   );

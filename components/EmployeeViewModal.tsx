@@ -83,15 +83,44 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
 
   const customFieldEntries = customEntries.filter(([k]) => fields.includes(k));
 
-  const printDetail = () => {
-    const html = `<!DOCTYPE html><html><head><title>Ficha</title></head><body>` +
-      `<table border="1" cellPadding="4"><tbody>` +
-      entries
+  const generateProfileHTML = () => {
+    let html = `<div class=\"card\"><h2>${employee.name || ''}</h2>`;
+    groups.forEach((g) => {
+      const rows = g.fields
+        .filter((f) => fields.includes(f) && employee[f])
         .map(
-          ([k, v]) => `<tr><td>${getFieldLabel(k)}</td><td>${String(v)}</td></tr>`
+          (f) =>
+            `<tr><td class=\"label\">${getFieldLabel(f)}</td><td>${employee[f]}</td></tr>`
         )
-        .join('') +
-      `</tbody></table></body></html>`;
+        .join('');
+      if (rows) {
+        html += `<h3>${g.title}</h3><table>${rows}</table>`;
+      }
+    });
+    if (customFieldEntries.length) {
+      const rows = customFieldEntries
+        .map(
+          ([k, v]) =>
+            `<tr><td class=\"label\">${getFieldLabel(k)}</td><td>${v}</td></tr>`
+        )
+        .join('');
+      if (rows) {
+        html += `<h3>Campos personalizados</h3><table>${rows}</table>`;
+      }
+    }
+    html += '</div>';
+    return html;
+  };
+
+  const printDetail = () => {
+    const html =
+      `<!DOCTYPE html><html><head><title>Ficha</title><style>` +
+      `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px}` +
+      `.card{border:1px solid #ddd;padding:10px;margin-bottom:10px}` +
+      `.label{font-weight:bold;background:#f9f9f9}` +
+      `</style></head><body>` +
+      generateProfileHTML() +
+      `</body></html>`;
     const w = window.open('', '', 'height=600,width=800');
     if (!w) return;
     w.document.write(html);
