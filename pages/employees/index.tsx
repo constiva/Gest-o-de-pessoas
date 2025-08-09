@@ -45,6 +45,7 @@ export default function Employees() {
   const [customFieldValue, setCustomFieldValue] = useState('');
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [openActions, setOpenActions] = useState<string | null>(null);
+  const [menuPos, setMenuPos] = useState<{ x: number; y: number } | null>(null);
   const [showColumns, setShowColumns] = useState(false);
   const [configOpen, setConfigOpen] = useState(false);
   const [viewId, setViewId] = useState<string | null>(null);
@@ -56,13 +57,19 @@ export default function Employees() {
   const [dismissReason, setDismissReason] = useState('');
   const [showFilter, setShowFilter] = useState(false);
   const router = useRouter();
+  const activeEmp = openActions
+    ? employees.find((e) => e.id === openActions) || null
+    : null;
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
       if (!target.closest('.column-menu')) setShowColumns(false);
       if (!target.closest('.print-menu')) setShowPrint(false);
-      if (!target.closest('.actions-menu')) setOpenActions(null);
+      if (!target.closest('.actions-menu')) {
+        setOpenActions(null);
+        setMenuPos(null);
+      }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
@@ -680,104 +687,20 @@ export default function Employees() {
             {filtered.map((emp) => (
               <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
                 <td className="border px-2 py-1 text-center">
-                  <div className="relative actions-menu">
+                  <div className="actions-menu inline-block">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setOpenActions(openActions === emp.id ? null : emp.id)
-                      }
+                      onClick={(e) => {
+                        const rect = (
+                          e.currentTarget as HTMLElement
+                        ).getBoundingClientRect();
+                        setMenuPos({ x: rect.right, y: rect.bottom });
+                        setOpenActions(openActions === emp.id ? null : emp.id);
+                      }}
                     >
                       ...
                     </Button>
-                    {openActions === emp.id && (
-                      <div className="absolute right-0 bg-white border p-2 z-50 space-y-1">
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => {
-                              setOpenActions(null);
-                              setViewId(emp.id);
-                            }}
-                          >
-                            Visualizar
-                          </button>
-                        </div>
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => {
-                              setOpenActions(null);
-                              router.push(`/employees/${emp.id}`);
-                            }}
-                          >
-                            Editar
-                          </button>
-                        </div>
-                        {emp.status === 'active' ? (
-                          <>
-                            <div>
-                              <button
-                                className="text-left text-sm text-brand hover:underline"
-                                onClick={() => updateStatus(emp.id, 'inactive')}
-                              >
-                                Inativar
-                              </button>
-                            </div>
-                            <div>
-                              <button
-                                className="text-left text-sm text-brand hover:underline"
-                                onClick={() => {
-                                  setOpenActions(null);
-                                  setDismissDate(
-                                    new Date().toISOString().slice(0, 10)
-                                  );
-                                  setDismissReason('');
-                                  setDismissId(emp.id);
-                                }}
-                              >
-                                Desligar
-                              </button>
-                            </div>
-                          </>
-                        ) : emp.status === 'inactive' ? (
-                          <>
-                            <div>
-                              <button
-                                className="text-left text-sm text-brand hover:underline"
-                                onClick={() => updateStatus(emp.id, 'active')}
-                              >
-                                Ativar
-                              </button>
-                            </div>
-                            <div>
-                              <button
-                                className="text-left text-sm text-brand hover:underline"
-                                onClick={() => {
-                                  setOpenActions(null);
-                                  setDismissDate(
-                                    new Date().toISOString().slice(0, 10)
-                                  );
-                                  setDismissReason('');
-                                  setDismissId(emp.id);
-                                }}
-                              >
-                                Desligar
-                              </button>
-                            </div>
-                          </>
-                        ) : (
-                          <div>
-                            <button
-                              className="text-left text-sm text-brand hover:underline"
-                              onClick={() => updateStatus(emp.id, 'active')}
-                            >
-                              Ativar
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )}
                   </div>
                 </td>
                 {columns.map((c) => (
@@ -790,6 +713,93 @@ export default function Employees() {
           </tbody>
         </table>
       </div>
+      {openActions && activeEmp && menuPos && (
+        <div
+          className="fixed bg-white border p-2 z-50 space-y-1 actions-menu"
+          style={{ top: menuPos.y, left: menuPos.x }}
+        >
+          <div>
+            <button
+              className="text-left text-sm text-brand hover:underline"
+              onClick={() => {
+                setOpenActions(null);
+                setViewId(activeEmp.id);
+              }}
+            >
+              Visualizar
+            </button>
+          </div>
+          <div>
+            <button
+              className="text-left text-sm text-brand hover:underline"
+              onClick={() => {
+                setOpenActions(null);
+                router.push(`/employees/${activeEmp.id}`);
+              }}
+            >
+              Editar
+            </button>
+          </div>
+          {activeEmp.status === 'active' ? (
+            <>
+              <div>
+                <button
+                  className="text-left text-sm text-brand hover:underline"
+                  onClick={() => updateStatus(activeEmp.id, 'inactive')}
+                >
+                  Inativar
+                </button>
+              </div>
+              <div>
+                <button
+                  className="text-left text-sm text-brand hover:underline"
+                  onClick={() => {
+                    setOpenActions(null);
+                    setDismissDate(new Date().toISOString().slice(0, 10));
+                    setDismissReason('');
+                    setDismissId(activeEmp.id);
+                  }}
+                >
+                  Desligar
+                </button>
+              </div>
+            </>
+          ) : activeEmp.status === 'inactive' ? (
+            <>
+              <div>
+                <button
+                  className="text-left text-sm text-brand hover:underline"
+                  onClick={() => updateStatus(activeEmp.id, 'active')}
+                >
+                  Ativar
+                </button>
+              </div>
+              <div>
+                <button
+                  className="text-left text-sm text-brand hover:underline"
+                  onClick={() => {
+                    setOpenActions(null);
+                    setDismissDate(new Date().toISOString().slice(0, 10));
+                    setDismissReason('');
+                    setDismissId(activeEmp.id);
+                  }}
+                >
+                  Desligar
+                </button>
+              </div>
+            </>
+          ) : (
+            <div>
+              <button
+                className="text-left text-sm text-brand hover:underline"
+                onClick={() => updateStatus(activeEmp.id, 'active')}
+              >
+                Ativar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
       <EmployeeConfigModal
         open={configOpen}
         onClose={() => {

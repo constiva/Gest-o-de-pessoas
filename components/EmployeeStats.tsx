@@ -11,7 +11,7 @@ export default function EmployeeStats({ active, inactive, dismissed }: Props) {
     { label: 'Funcionários desligados', value: dismissed },
   ];
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 w-full max-w-2xl">
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 w-full max-w-2xl mx-auto">
       {items.map((item) => (
         <div
           key={item.label}
