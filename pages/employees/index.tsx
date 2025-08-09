@@ -29,6 +29,7 @@ export default function Employees() {
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
   const [filters, setFilters] = useState<Filter[]>([]);
+  const [filtersReady, setFiltersReady] = useState(false);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
@@ -109,6 +110,7 @@ export default function Employees() {
       .eq('user_id', session.user.id)
       .single();
     setFilters(savedFilters?.filters || []);
+    setFiltersReady(true);
   };
 
   useEffect(() => {
@@ -121,6 +123,7 @@ export default function Employees() {
     }
   }, [columns]);
   useEffect(() => {
+    if (!filtersReady) return;
     const save = async () => {
       const {
         data: { session },
@@ -131,7 +134,7 @@ export default function Employees() {
         .upsert({ user_id: session.user.id, filters });
     };
     save();
-  }, [filters]);
+  }, [filters, filtersReady]);
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
   const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
@@ -379,7 +382,7 @@ export default function Employees() {
               Colunas
             </Button>
             {showColumns && (
-              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
+              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-72">
                 {allColumns.map((c) => (
                   <label key={c} className="block">
                     <input
@@ -544,6 +547,7 @@ export default function Employees() {
       )}
       {filters.length > 0 && (
         <div className="mt-2 space-x-2">
+          <span className="font-semibold">Filtros ativos:</span>
           {filters.map((f, i) => (
             <span key={i} className="bg-purple-50 p-1 rounded">
               {`${getFieldLabel(f.field)}:`}
@@ -557,26 +561,26 @@ export default function Employees() {
           ))}
         </div>
       )}
-      <table className="w-full border border-purple-100 text-sm border-separate border-spacing-y-2">
+      <table className="w-full border border-purple-100 text-sm border-collapse mt-4">
         <thead className="bg-purple-50">
           <tr>
             {columns.map((c) => (
-              <th key={c} className="border p-2">
+              <th key={c} className="border px-2 py-1">
                 {getFieldLabel(c)}
               </th>
             ))}
-            <th className="border p-2">Ações</th>
+            <th className="border px-2 py-1">Ações</th>
           </tr>
         </thead>
         <tbody>
           {filtered.map((emp) => (
             <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
               {columns.map((c) => (
-                <td key={c} className="border p-2">
+                <td key={c} className="border px-2 py-1">
                   {emp[c]}
                 </td>
               ))}
-              <td className="border p-2">
+              <td className="border px-2 py-1">
                 <div className="relative actions-menu">
                   <Button
                     variant="outline"
