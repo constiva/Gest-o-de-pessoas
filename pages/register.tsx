@@ -9,7 +9,6 @@ import { UserPlus } from 'lucide-react';
 interface SignUpForm {
   companyName: string;
   plan: string;
-  maxEmployees: string;
   name: string;
   phone: string;
   email: string;
@@ -19,8 +18,7 @@ interface SignUpForm {
 export default function Register() {
   const [form, setForm] = useState<SignUpForm>({
     companyName: '',
-    plan: '',
-    maxEmployees: '',
+    plan: 'basic',
     name: '',
     phone: '',
     email: '',
@@ -29,7 +27,7 @@ export default function Register() {
   const router = useRouter();
 
   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement>
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
   ) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
@@ -45,6 +43,12 @@ export default function Register() {
       return;
     }
     const userId = authData.user.id;
+    const plans = {
+      basic: 5,
+      pro: 50,
+      enterprise: 500
+    } as const;
+    const maxEmployees = plans[form.plan as keyof typeof plans];
     const { data: company, error: companyError } = await supabase
       .from('companies')
       .insert({
@@ -52,7 +56,7 @@ export default function Register() {
         email: form.email,
         phone: form.phone,
         plan: form.plan,
-        maxemployees: parseInt(form.maxEmployees, 10)
+        maxemployees: maxEmployees
       })
       .select()
       .single();
@@ -71,6 +75,15 @@ export default function Register() {
       alert(userError.message);
       return;
     }
+    await fetch('/api/efibank/subscribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        plan: form.plan,
+        companyId: company.id,
+        customer: { name: form.name, email: form.email }
+      })
+    });
     router.push('/dashboard');
   };
 
@@ -82,8 +95,17 @@ export default function Register() {
         </h1>
         <form onSubmit={handleSubmit} className="space-y-3">
           <Input name="companyName" placeholder="Empresa" onChange={handleChange} />
-          <Input name="plan" placeholder="Plano" onChange={handleChange} />
-          <Input name="maxEmployees" placeholder="Máx. funcionários" onChange={handleChange} />
+          <label className="block text-sm">Plano</label>
+          <select
+            name="plan"
+            value={form.plan}
+            onChange={handleChange}
+            className="w-full border rounded p-2"
+          >
+            <option value="basic">Básico - 5 funcionários</option>
+            <option value="pro">Pro - 50 funcionários</option>
+            <option value="enterprise">Enterprise - 500 funcionários</option>
+          </select>
           <Input name="name" placeholder="Seu nome" onChange={handleChange} />
           <Input name="phone" placeholder="Telefone" onChange={handleChange} />
           <Input name="email" placeholder="Email" onChange={handleChange} />

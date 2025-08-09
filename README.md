@@ -8,6 +8,27 @@ Projeto inicial de SaaS usando Next.js e TypeScript com autenticação via Supab
 2. Instale as dependências com `npm install`.
 3. Execute o servidor de desenvolvimento com `npm run dev`.
 4. O projeto usa TailwindCSS e componentes do [shadcn/ui](https://ui.shadcn.com/) para uma interface limpa com tons de roxo e branco.
+5. Variáveis de ambiente para o Efibank estão em `.env.example` caso queira testar assinaturas.
+
+## Assinaturas Efibank
+
+Durante o registro a empresa escolhe entre os planos **Básico**, **Pro** ou **Enterprise**. Após a criação do usuário e da companhia, o app chama `POST /api/efibank/subscribe`, que atualmente simula a criação de um plano e assinatura usando o SDK do Efibank.
+
+Para testar manualmente a rota de assinatura:
+
+```bash
+curl -X POST http://localhost:3000/api/efibank/subscribe \\
+  -H "Content-Type: application/json" \\
+  -d '{"plan":"basic","customer":{"name":"Teste","email":"t@e.com"}}'
+```
+
+Um webhook de exemplo está disponível em `POST /api/efibank/webhook` e apenas registra o payload recebido:
+
+```bash
+curl -X POST http://localhost:3000/api/efibank/webhook \\
+  -H "Content-Type: application/json" \\
+  -d '{"event":"sample"}'
+```
 
 ## Esquema no Supabase
 
