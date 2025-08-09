@@ -11,6 +11,8 @@ EFIBANK_ACCOUNT_ID=2b66b5aca795962bc41a5db3c42ea272
 EFIBANK_PIX_KEY=7f03e28f-8ad4-45b0-b452-3552180c6ac4
 EFIBANK_CERTIFICATE_PATH=/home/u375406272/domains/constiva.com/private/homologacao-768533-ConstivaHomolog.p12
 
+Every request and response is logged to `debugCheckout.txt` for troubleshooting.
+
 2. Install the Efibank SDK
 --------------------------
 Use the official Node SDK to communicate with the Efibank API:
@@ -36,6 +38,7 @@ const plan = await efi.createPlan({}, {
   interval: 1, // mensal
   repeats: 0  // 0 = recorrência indefinida
 });
+// logs are appended to debugCheckout.txt
 ```
 
 4. Create a subscription in one step
@@ -62,12 +65,35 @@ await efi.createSubscriptionOneStep({ id: plan.data.plan_id }, {
 });
 ```
 
-5. Monitor and manage subscriptions
------------------------------------
-- Use `GET /v1/subscription/:id` to fetch subscription status.
-- Retry failed card payments with `POST /v1/charge/:id/retry`.
-- Cancel a subscription via `PUT /v1/subscription/:id/cancel`.
+5. Two‑step flow
+----------------
+1. Crie a inscrição: `POST /v1/plan/:id/subscription`
+2. Defina o pagamento: `POST /v1/subscription/:id/pay`
 
-These commands implement a monthly recurring charge (interval 1).
-Refer to Efibank’s documentation for additional options like trial
-periods, boleto payments and metadata updates.
+6. Monitor and manage subscriptions
+-----------------------------------
+- Status da assinatura: `GET /v1/subscription/:id`
+- Retentativa cartão: `POST /v1/charge/:id/retry`
+- Cancelar: `PUT /v1/subscription/:id/cancel`
+- Histórico: `POST /v1/subscription/:id/history`
+
+7. Useful plan endpoints
+------------------------
+- Listar planos: `GET /v1/plans`
+- Editar nome: `PUT /v1/plan/:id`
+- Cancelar plano: `DELETE /v1/plan/:id`
+
+8. Debugging
+------------
+Calls to `/api/efibank/subscribe` and the webhook append JSON lines
+to `debugCheckout.txt`. Inspect this file to verify SDK connection
+and payloads when testing with `curl`:
+
+```
+curl -X POST http://localhost:3000/api/efibank/subscribe \
+  -H 'Content-Type: application/json' \
+  -d '{"plan":"Plano Mensal","customer":{"name":"Teste","email":"t@example.com"},"card":{"number":"4111111111111111","holder":"Teste","expMonth":"12","expYear":"2030","cvv":"123"}}'
+```
+
+The log will include plan creation, subscription creation and any
+errors returned by the Efibank API.

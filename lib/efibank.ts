@@ -1,5 +1,14 @@
 import EfiPay from 'gn-api-sdk-node';
 import fs from 'fs';
+import path from 'path';
+
+const DEBUG_PATH = path.join(process.cwd(), 'debugCheckout.txt');
+
+function logDebug(msg: string, data?: unknown) {
+  const line = `[${new Date().toISOString()}] ${msg}` +
+    (data ? ` ${JSON.stringify(data)}` : '') + '\n';
+  fs.appendFileSync(DEBUG_PATH, line);
+}
 
 interface Customer {
   name: string;
@@ -19,6 +28,7 @@ export async function createEfibankSubscription(
   customer: Customer,
   card: Card
 ) {
+  logDebug('Starting subscription flow', { plan, customer });
   const efi = new EfiPay({
     client_id: process.env.EFIBANK_CLIENT_ID,
     client_secret: process.env.EFIBANK_CLIENT_SECRET,
@@ -31,6 +41,7 @@ export async function createEfibankSubscription(
     interval: 1,
     repeats: 0
   });
+  logDebug('Plan created', createdPlan.data);
 
   const subscription = await efi.createSubscriptionOneStep(
     { id: createdPlan.data.plan_id },
@@ -53,6 +64,7 @@ export async function createEfibankSubscription(
       }
     }
   );
+  logDebug('Subscription created', subscription.data);
 
   return subscription.data;
 }

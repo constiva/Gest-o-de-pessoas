@@ -1,6 +1,16 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import { supabase } from '../../../lib/supabaseClient';
 import { PLAN_LIMITS } from '../../../lib/utils';
+import fs from 'fs';
+import path from 'path';
+
+const DEBUG_PATH = path.join(process.cwd(), 'debugCheckout.txt');
+
+function logDebug(msg: string, data?: unknown) {
+  const line = `[${new Date().toISOString()}] ${msg}` +
+    (data ? ` ${JSON.stringify(data)}` : '') + '\n';
+  fs.appendFileSync(DEBUG_PATH, line);
+}
 
 export default async function handler(
   req: NextApiRequest,
@@ -8,6 +18,7 @@ export default async function handler(
 ) {
   if (req.method !== 'POST') return res.status(405).end();
   const { subscription_id, status } = req.body;
+  logDebug('Webhook received', { subscription_id, status });
   if (status === 'paid') {
     const { data: sub } = await supabase
       .from('subscriptions')
@@ -24,6 +35,7 @@ export default async function handler(
         .from('companies')
         .update({ maxemployees: limit })
         .eq('id', sub.company_id);
+      logDebug('Subscription activated', { company: sub.company_id, limit });
     }
   }
   res.status(200).json({ received: true });
