@@ -43,10 +43,44 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
 
   if (!employee) return null;
 
-  const entries = [
-    ...Object.entries(employee).filter(([k]) => k !== 'custom_fields'),
-    ...(employee.custom_fields ? Object.entries(employee.custom_fields) : []),
-  ].filter(([k]) => fields.includes(k));
+  const baseEntries = Object.entries(employee).filter(
+    ([k]) => k !== 'custom_fields'
+  );
+  const customEntries = employee.custom_fields
+    ? Object.entries(employee.custom_fields)
+    : [];
+  const entries = [...baseEntries, ...customEntries].filter(([k]) =>
+    fields.includes(k)
+  );
+
+  const groups = [
+    {
+      title: 'Informações pessoais',
+      fields: ['name', 'email', 'phone', 'cpf', 'gender'],
+    },
+    {
+      title: 'Endereço',
+      fields: ['street', 'city', 'state', 'zip'],
+    },
+    {
+      title: 'Informações profissionais',
+      fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+    },
+    {
+      title: 'Contato de emergência',
+      fields: [
+        'emergency_contact_name',
+        'emergency_contact_phone',
+        'emergency_contact_relation',
+      ],
+    },
+    {
+      title: 'Outros',
+      fields: ['resume_url', 'comments'],
+    },
+  ];
+
+  const customFieldEntries = customEntries.filter(([k]) => fields.includes(k));
 
   const printDetail = () => {
     const html = `<!DOCTYPE html><html><head><title>Ficha</title></head><body>` +
@@ -100,16 +134,44 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
         <Button variant="outline" size="sm" className="mb-4" onClick={printDetail}>
           Imprimir
         </Button>
-        <table className="w-full border border-purple-100 text-sm">
-          <tbody>
-            {entries.map(([k, v]) => (
-              <tr key={k} className="odd:bg-white even:bg-purple-50/40">
-                <td className="border p-2 font-medium">{k}</td>
-                <td className="border p-2">{String(v)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        {groups.map((group) => {
+          const groupRows = group.fields
+            .filter((f) =>
+              typeof (employee as any)[f] !== 'undefined' && fields.includes(f)
+            )
+            .map((f) => [f, (employee as any)[f]] as [string, any]);
+          if (!groupRows.length) return null;
+          return (
+            <div key={group.title} className="mb-4">
+              <h3 className="font-semibold mb-2">{group.title}</h3>
+              <table className="w-full border border-purple-100 text-sm">
+                <tbody>
+                  {groupRows.map(([k, v]) => (
+                    <tr key={k} className="odd:bg-white even:bg-purple-50/40">
+                      <td className="border p-2 font-medium">{k}</td>
+                      <td className="border p-2">{String(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          );
+        })}
+        {customFieldEntries.length > 0 && (
+          <div className="mb-4">
+            <h3 className="font-semibold mb-2">Campos personalizados</h3>
+            <table className="w-full border border-purple-100 text-sm">
+              <tbody>
+                {customFieldEntries.map(([k, v]) => (
+                  <tr key={k} className="odd:bg-white even:bg-purple-50/40">
+                    <td className="border p-2 font-medium">{k}</td>
+                    <td className="border p-2">{String(v)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </div>
   );

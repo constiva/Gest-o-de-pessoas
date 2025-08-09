@@ -136,54 +136,266 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   };
 
   return (
-    <form onSubmit={handleSubmit}>
-      <h1>{isEdit ? 'Editar Funcionário' : 'Novo Funcionário'}</h1>
-      <input name="name" placeholder="Nome" value={form.name} onChange={handleChange} />
-      <input name="email" placeholder="Email" value={form.email} onChange={handleChange} />
-      <input name="phone" placeholder="Telefone" value={form.phone} onChange={handleChange} />
-      <input name="cpf" placeholder="CPF/CNPJ" value={form.cpf} onChange={handleChange} />
-      <input name="street" placeholder="Rua" value={form.street} onChange={handleChange} />
-      <input name="city" placeholder="Cidade" value={form.city} onChange={handleChange} />
-      <input name="state" placeholder="Estado" value={form.state} onChange={handleChange} />
-      <input name="zip" placeholder="CEP" value={form.zip} onChange={handleChange} />
-      <input name="position" placeholder="Cargo" value={form.position} onChange={handleChange} />
-      <select name="department" value={form.department} onChange={handleChange}>
-        <option value="">Departamento</option>
-        {departments.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-      <input name="salary" placeholder="Salário" value={form.salary} onChange={handleChange} />
-      <input name="hire_date" type="date" value={form.hire_date} onChange={handleChange} />
-      <select name="status" value={form.status} onChange={handleChange}>
-        <option value="active">Ativo</option>
-        <option value="inactive">Inativo</option>
-        <option value="dismissed">Desligado</option>
-      </select>
-      <input name="gender" placeholder="Gênero" value={form.gender} onChange={handleChange} />
-      <input name="emergency_contact_name" placeholder="Contato Emergência" value={form.emergency_contact_name} onChange={handleChange} />
-      <input name="emergency_contact_phone" placeholder="Telefone Emergência" value={form.emergency_contact_phone} onChange={handleChange} />
-      <input name="emergency_contact_relation" placeholder="Relação" value={form.emergency_contact_relation} onChange={handleChange} />
-      <input name="resume_url" placeholder="URL do Currículo" value={form.resume_url} onChange={handleChange} />
-      <textarea name="comments" placeholder="Comentários" value={form.comments} onChange={handleChange} />
-      {Object.entries(customFieldDefs).map(([field, options]) => (
-        <div key={field}>
-          <label>{field}</label>
-          <select
-            value={form.custom_fields[field] || ''}
-            onChange={(e) => handleCustomFieldChange(field, e.target.value)}
-          >
-            <option value="">Selecione</option>
-            {options.map((opt) => (
-              <option key={opt} value={opt}>
-                {opt}
-              </option>
-            ))}
-          </select>
+    <form onSubmit={handleSubmit} className="space-y-6">
+      <h1 className="text-xl font-bold">
+        {isEdit ? 'Editar Funcionário' : 'Novo Funcionário'}
+      </h1>
+
+      <section>
+        <h2 className="font-semibold mb-2">Informações pessoais</h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex flex-col">
+            <label htmlFor="name">Nome completo</label>
+            <input
+              id="name"
+              name="name"
+              placeholder="Ex: João da Silva"
+              value={form.name}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="email">Email</label>
+            <input
+              id="email"
+              name="email"
+              type="email"
+              placeholder="exemplo@empresa.com"
+              value={form.email}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="phone">Telefone</label>
+            <input
+              id="phone"
+              name="phone"
+              placeholder="Ex: 11 99999-9999"
+              value={form.phone}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="cpf">CPF/CNPJ</label>
+            <input
+              id="cpf"
+              name="cpf"
+              placeholder="Ex: 123.456.789-00"
+              value={form.cpf}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="gender">Gênero</label>
+            <input
+              id="gender"
+              name="gender"
+              placeholder="Ex: Feminino"
+              value={form.gender}
+              onChange={handleChange}
+            />
+          </div>
         </div>
-      ))}
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-2">Endereço</h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex flex-col">
+            <label htmlFor="street">Rua</label>
+            <input
+              id="street"
+              name="street"
+              placeholder="Ex: Av. Paulista, 1000"
+              value={form.street}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="city">Cidade</label>
+            <input
+              id="city"
+              name="city"
+              placeholder="Ex: São Paulo"
+              value={form.city}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="state">Estado</label>
+            <input
+              id="state"
+              name="state"
+              placeholder="Ex: SP"
+              value={form.state}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="zip">CEP</label>
+            <input
+              id="zip"
+              name="zip"
+              placeholder="Ex: 01234-567"
+              value={form.zip}
+              onChange={handleChange}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-2">Informações profissionais</h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex flex-col">
+            <label htmlFor="position">Cargo</label>
+            <input
+              id="position"
+              name="position"
+              placeholder="Ex: Analista de RH"
+              value={form.position}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="department">Departamento</label>
+            <select
+              id="department"
+              name="department"
+              value={form.department}
+              onChange={handleChange}
+            >
+              <option value="">Selecione</option>
+              {departments.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="salary">Salário</label>
+            <input
+              id="salary"
+              name="salary"
+              placeholder="Ex: 3500"
+              value={form.salary}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="hire_date">Data de admissão</label>
+            <input
+              id="hire_date"
+              name="hire_date"
+              type="date"
+              value={form.hire_date}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="status">Status</label>
+            <select
+              id="status"
+              name="status"
+              value={form.status}
+              onChange={handleChange}
+            >
+              <option value="active">Ativo</option>
+              <option value="inactive">Inativo</option>
+              <option value="dismissed">Desligado</option>
+            </select>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-2">Contato de emergência</h2>
+        <div className="grid gap-2 sm:grid-cols-2">
+          <div className="flex flex-col">
+            <label htmlFor="emergency_contact_name">Nome</label>
+            <input
+              id="emergency_contact_name"
+              name="emergency_contact_name"
+              placeholder="Ex: Maria Silva"
+              value={form.emergency_contact_name}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="emergency_contact_phone">Telefone</label>
+            <input
+              id="emergency_contact_phone"
+              name="emergency_contact_phone"
+              placeholder="Ex: 11 98888-7777"
+              value={form.emergency_contact_phone}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="emergency_contact_relation">Relação</label>
+            <input
+              id="emergency_contact_relation"
+              name="emergency_contact_relation"
+              placeholder="Ex: Mãe"
+              value={form.emergency_contact_relation}
+              onChange={handleChange}
+            />
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h2 className="font-semibold mb-2">Outros</h2>
+        <div className="grid gap-2">
+          <div className="flex flex-col">
+            <label htmlFor="resume_url">URL do currículo</label>
+            <input
+              id="resume_url"
+              name="resume_url"
+              placeholder="https://exemplo.com/curriculo.pdf"
+              value={form.resume_url}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="flex flex-col">
+            <label htmlFor="comments">Comentários</label>
+            <textarea
+              id="comments"
+              name="comments"
+              placeholder="Observações adicionais"
+              value={form.comments}
+              onChange={handleChange}
+            />
+          </div>
+        </div>
+      </section>
+
+      {Object.entries(customFieldDefs).length > 0 && (
+        <section>
+          <h2 className="font-semibold mb-2">Campos personalizados</h2>
+          <div className="grid gap-2 sm:grid-cols-2">
+            {Object.entries(customFieldDefs).map(([field, options]) => (
+              <div key={field} className="flex flex-col">
+                <label htmlFor={`cf-${field}`}>{field}</label>
+                <select
+                  id={`cf-${field}`}
+                  value={form.custom_fields[field] || ''}
+                  onChange={(e) => handleCustomFieldChange(field, e.target.value)}
+                >
+                  <option value="">Selecione</option>
+                  {options.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <button type="submit">Salvar</button>
     </form>
   );
