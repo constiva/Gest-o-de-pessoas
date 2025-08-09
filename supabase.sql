@@ -55,3 +55,8 @@ create table public.departments (
   company_id uuid references public.companies(id) on delete cascade,
   name text not null
 );
+
+create table public.employee_filters (
+  user_id uuid primary key references public.users(id) on delete cascade,
+  filters jsonb
+);

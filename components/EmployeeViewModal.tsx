@@ -42,6 +42,15 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
     }
   }, [fields]);
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.view-fields-menu')) setShowFields(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   if (!employee) return null;
 
   const baseEntries = Object.entries(employee).filter(
@@ -135,12 +144,12 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
           <h2 className="text-xl font-bold">Ficha do Funcionário</h2>
           <button onClick={onClose}>X</button>
         </div>
-        <div className="relative mb-4">
+        <div className="relative mb-4 view-fields-menu">
           <Button variant="outline" size="sm" onClick={() => setShowFields(!showFields)}>
             Campos
           </Button>
           {showFields && (
-            <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto">
+            <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
               {allFields.map((f) => (
                 <label key={f} className="block">
                   <input

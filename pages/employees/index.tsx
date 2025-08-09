@@ -53,6 +53,17 @@ export default function Employees() {
   const [showFilter, setShowFilter] = useState(false);
   const router = useRouter();
 
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.column-menu')) setShowColumns(false);
+      if (!target.closest('.print-menu')) setShowPrint(false);
+      if (!target.closest('.actions-menu')) setOpenActions(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
   const refreshCounts = (data: Employee[]) => {
     const active = data.filter((e) => e.status === 'active').length;
     const inactive = data.filter((e) => e.status === 'inactive').length;
@@ -92,8 +103,12 @@ export default function Employees() {
     const saved = localStorage.getItem('employeeColumns');
     setColumns(saved ? JSON.parse(saved) : all);
     setField(all[0] || '');
-    const savedFilters = localStorage.getItem('employeeFilters');
-    setFilters(savedFilters ? JSON.parse(savedFilters) : []);
+    const { data: savedFilters } = await supabase
+      .from('employee_filters')
+      .select('filters')
+      .eq('user_id', session.user.id)
+      .single();
+    setFilters(savedFilters?.filters || []);
   };
 
   useEffect(() => {
@@ -105,9 +120,17 @@ export default function Employees() {
       localStorage.setItem('employeeColumns', JSON.stringify(columns));
     }
   }, [columns]);
-
   useEffect(() => {
-    localStorage.setItem('employeeFilters', JSON.stringify(filters));
+    const save = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) return;
+      await supabase
+        .from('employee_filters')
+        .upsert({ user_id: session.user.id, filters });
+    };
+    save();
   }, [filters]);
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
@@ -157,6 +180,7 @@ export default function Employees() {
       setCustomFieldName('');
       setCustomFieldValue('');
     }
+    setShowFilter(false);
   };
 
   const removeFilter = (i: number) => {
@@ -346,7 +370,7 @@ export default function Employees() {
           >
             Adicionar filtro
           </Button>
-          <div className="relative">
+          <div className="relative column-menu">
             <Button
               variant="outline"
               size="sm"
@@ -355,7 +379,7 @@ export default function Employees() {
               Colunas
             </Button>
             {showColumns && (
-              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto">
+              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
                 {allColumns.map((c) => (
                   <label key={c} className="block">
                     <input
@@ -376,7 +400,7 @@ export default function Employees() {
               </div>
             )}
           </div>
-          <div className="relative">
+          <div className="relative print-menu">
             <Button
               variant="outline"
               size="sm"
@@ -533,7 +557,7 @@ export default function Employees() {
           ))}
         </div>
       )}
-      <table className="w-full border border-purple-100 text-sm">
+      <table className="w-full border border-purple-100 text-sm border-separate border-spacing-y-2">
         <thead className="bg-purple-50">
           <tr>
             {columns.map((c) => (
@@ -552,66 +576,90 @@ export default function Employees() {
                   {emp[c]}
                 </td>
               ))}
-              <td className="border p-2 relative">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setOpenActions(openActions === emp.id ? null : emp.id)
-                  }
-                >
-                  ...
-                </Button>
-                {openActions === emp.id && (
-                  <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
-                    <div>
-                      <button
-                        className="text-left text-sm text-brand hover:underline"
-                        onClick={() => {
-                          setOpenActions(null);
-                          setViewId(emp.id);
-                        }}
-                      >
-                        Visualizar
-                      </button>
-                    </div>
-                    <div>
-                      <button
-                        className="text-left text-sm text-brand hover:underline"
-                        onClick={() => {
-                          setOpenActions(null);
-                          router.push(`/employees/${emp.id}`);
-                        }}
-                      >
-                        Editar
-                      </button>
-                    </div>
-                    {emp.status === 'active' ? (
-                      <>
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => updateStatus(emp.id, 'inactive')}
-                          >
-                            Inativar
-                          </button>
-                        </div>
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => {
-                              setOpenActions(null);
-                              setDismissDate(new Date().toISOString().slice(0, 10));
-                              setDismissReason('');
-                              setDismissId(emp.id);
-                            }}
-                          >
-                            Desligar
-                          </button>
-                        </div>
-                      </>
-                    ) : emp.status === 'inactive' ? (
-                      <>
+              <td className="border p-2">
+                <div className="relative actions-menu">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      setOpenActions(openActions === emp.id ? null : emp.id)
+                    }
+                  >
+                    ...
+                  </Button>
+                  {openActions === emp.id && (
+                    <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
+                      <div>
+                        <button
+                          className="text-left text-sm text-brand hover:underline"
+                          onClick={() => {
+                            setOpenActions(null);
+                            setViewId(emp.id);
+                          }}
+                        >
+                          Visualizar
+                        </button>
+                      </div>
+                      <div>
+                        <button
+                          className="text-left text-sm text-brand hover:underline"
+                          onClick={() => {
+                            setOpenActions(null);
+                            router.push(`/employees/${emp.id}`);
+                          }}
+                        >
+                          Editar
+                        </button>
+                      </div>
+                      {emp.status === 'active' ? (
+                        <>
+                          <div>
+                            <button
+                              className="text-left text-sm text-brand hover:underline"
+                              onClick={() => updateStatus(emp.id, 'inactive')}
+                            >
+                              Inativar
+                            </button>
+                          </div>
+                          <div>
+                            <button
+                              className="text-left text-sm text-brand hover:underline"
+                              onClick={() => {
+                                setOpenActions(null);
+                                setDismissDate(new Date().toISOString().slice(0, 10));
+                                setDismissReason('');
+                                setDismissId(emp.id);
+                              }}
+                            >
+                              Desligar
+                            </button>
+                          </div>
+                        </>
+                      ) : emp.status === 'inactive' ? (
+                        <>
+                          <div>
+                            <button
+                              className="text-left text-sm text-brand hover:underline"
+                              onClick={() => updateStatus(emp.id, 'active')}
+                            >
+                              Ativar
+                            </button>
+                          </div>
+                          <div>
+                            <button
+                              className="text-left text-sm text-brand hover:underline"
+                              onClick={() => {
+                                setOpenActions(null);
+                                setDismissDate(new Date().toISOString().slice(0, 10));
+                                setDismissReason('');
+                                setDismissId(emp.id);
+                              }}
+                            >
+                              Desligar
+                            </button>
+                          </div>
+                        </>
+                      ) : (
                         <div>
                           <button
                             className="text-left text-sm text-brand hover:underline"
@@ -620,32 +668,10 @@ export default function Employees() {
                             Ativar
                           </button>
                         </div>
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => {
-                              setOpenActions(null);
-                              setDismissDate(new Date().toISOString().slice(0, 10));
-                              setDismissReason('');
-                              setDismissId(emp.id);
-                            }}
-                          >
-                            Desligar
-                          </button>
-                        </div>
-                      </>
-                    ) : (
-                      <div>
-                        <button
-                          className="text-left text-sm text-brand hover:underline"
-                          onClick={() => updateStatus(emp.id, 'active')}
-                        >
-                          Ativar
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                )}
+                      )}
+                    </div>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
