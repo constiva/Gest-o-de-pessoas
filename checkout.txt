@@ -79,6 +79,18 @@ await efi.createSubscriptionOneStep({ id: plan.data.plan_id }, {
 - Cancelar: `PUT /v1/subscription/:id/cancel`
 - Histórico: `POST /v1/subscription/:id/history`
 
+7. Admin dashboard
+------------------
+Para testar rapidamente os endpoints, acesse `/checkoutadmin` e informe a
+senha `123456`. A página oferece formulários simples para:
+
+- Criar, listar, renomear e cancelar planos
+- Criar uma assinatura vinculada a um plano
+- Pagar uma assinatura por boleto
+
+Todas as chamadas efetuadas por essa página também são registradas em
+`debugCheckout.txt`.
+
 7. Useful plan endpoints
 ------------------------
 - Listar planos: `GET /v1/plans`

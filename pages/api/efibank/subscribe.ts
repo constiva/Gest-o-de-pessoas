@@ -20,7 +20,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     logDebug('API /efibank/subscribe success', sub);
     res.status(200).json(sub);
   } catch (err) {
-    logDebug('API /efibank/subscribe error', { error: String(err) });
+    logDebug('API /efibank/subscribe error', err instanceof Error ? err : { err });
     res.status(500).json({ error: 'subscription_failed' });
   }
 }
