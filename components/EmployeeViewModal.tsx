@@ -172,7 +172,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
           onClick={() => setShowFields(false)}
         >
           <div
-            className="bg-white rounded p-4 w-72 max-h-[80vh] overflow-y-auto"
+            className="bg-white rounded p-4 w-72 max-h-96 overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex justify-between items-center mb-2">
