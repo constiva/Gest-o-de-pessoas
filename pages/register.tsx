@@ -75,16 +75,15 @@ export default function Register() {
       alert(userError.message);
       return;
     }
-    await fetch('/api/efibank/subscribe', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        plan: form.plan,
-        companyId: company.id,
-        customer: { name: form.name, email: form.email }
-      })
-    });
-    router.push('/dashboard');
+    if (form.plan === 'basic') {
+      router.push('/dashboard');
+    } else {
+      router.push(
+        `/checkout?plan=${form.plan}&companyId=${company.id}&name=${encodeURIComponent(
+          form.name
+        )}&email=${encodeURIComponent(form.email)}`
+      );
+    }
   };
 
   return (

@@ -16,7 +16,8 @@
     "@supabase/supabase-js": "^2.43.1",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
-    "tailwind-merge": "^2.2.1"
+    "tailwind-merge": "^2.2.1",
+    "gn-api-sdk-node": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "20.11.19",

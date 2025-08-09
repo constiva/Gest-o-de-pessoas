@@ -4,8 +4,8 @@ import { createEfibankSubscription } from '../../../lib/efibank';
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
   try {
-    const { plan, customer } = req.body;
-    const sub = await createEfibankSubscription(plan, customer);
+    const { plan, customer, card } = req.body;
+    const sub = await createEfibankSubscription(plan, customer, card);
     res.status(200).json(sub);
   } catch (err) {
     console.error(err);

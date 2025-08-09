@@ -1,11 +1,58 @@
+import EfiPay from 'gn-api-sdk-node';
+import fs from 'fs';
+
 interface Customer {
   name: string;
   email: string;
 }
 
-export async function createEfibankSubscription(plan: string, customer: Customer) {
-  // This function simulates interaction with the Efibank API.
-  // Replace with real SDK calls in production.
-  console.log('Efibank subscription request', { plan, customer });
-  return { id: 'mock-subscription', plan };
+interface Card {
+  number: string;
+  holder: string;
+  expMonth: string;
+  expYear: string;
+  cvv: string;
+}
+
+export async function createEfibankSubscription(
+  plan: string,
+  customer: Customer,
+  card: Card
+) {
+  const efi = new EfiPay({
+    client_id: process.env.EFIBANK_CLIENT_ID,
+    client_secret: process.env.EFIBANK_CLIENT_SECRET,
+    certificate: fs.readFileSync(process.env.EFIBANK_CERTIFICATE_PATH as string),
+    sandbox: true
+  });
+
+  const createdPlan = await efi.createPlan({}, {
+    name: plan,
+    interval: 1,
+    repeats: 0
+  });
+
+  const subscription = await efi.createSubscriptionOneStep(
+    { id: createdPlan.data.plan_id },
+    {
+      customer: { name: customer.name, email: customer.email },
+      items: [{ name: 'Assinatura', value: 1000, amount: 1 }],
+      payment: {
+        credit_card: {
+          customer: {
+            name: customer.name,
+            email: customer.email
+          },
+          installments: 1,
+          card_number: card.number,
+          cardholder_name: card.holder,
+          exp_month: card.expMonth,
+          exp_year: card.expYear,
+          security_code: card.cvv
+        }
+      }
+    }
+  );
+
+  return subscription.data;
 }

@@ -12,14 +12,17 @@ Projeto inicial de SaaS usando Next.js e TypeScript com autenticação via Supab
 
 ## Assinaturas Efibank
 
-Durante o registro a empresa escolhe entre os planos **Básico**, **Pro** ou **Enterprise**. Após a criação do usuário e da companhia, o app chama `POST /api/efibank/subscribe`, que atualmente simula a criação de um plano e assinatura usando o SDK do Efibank.
+O projeto utiliza o SDK oficial [`gn-api-sdk-node`](https://github.com/efipay/sdk-node) para criar planos e assinaturas. Durante o registro a empresa escolhe entre os planos **Básico**, **Pro** ou **Enterprise**:
 
-Para testar manualmente a rota de assinatura:
+- **Básico**: cadastro segue direto para o dashboard.
+- **Pro** ou **Enterprise**: após salvar o usuário e a empresa, o fluxo redireciona para `/checkout` onde o cliente informa os dados do cartão. O backend em `/api/efibank/subscribe` usa o SDK para criar o plano e a assinatura.
+
+Exemplo de requisição direta à API:
 
 ```bash
 curl -X POST http://localhost:3000/api/efibank/subscribe \\
   -H "Content-Type: application/json" \\
-  -d '{"plan":"basic","customer":{"name":"Teste","email":"t@e.com"}}'
+  -d '{"plan":"pro","customer":{"name":"Teste","email":"t@e.com"},"card":{"number":"0000","holder":"TESTE","expMonth":"01","expYear":"2030","cvv":"123"}}'
 ```
 
 Um webhook de exemplo está disponível em `POST /api/efibank/webhook` e apenas registra o payload recebido:
