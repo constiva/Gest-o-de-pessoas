@@ -14,3 +14,30 @@ create table public.users (
   email text,
   company_id uuid references public.companies(id)
 );
+
+create table public.employees (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  name text,
+  email text,
+  phone text,
+  cpf text,
+  street text,
+  city text,
+  state text,
+  zip text,
+  position text,
+  department text,
+  salary numeric,
+  hire_date date,
+  termination_date date,
+  status text check (status in ('active','inactive','dismissed')) default 'active',
+  gender text,
+  emergency_contact_name text,
+  emergency_contact_phone text,
+  emergency_contact_relation text,
+  resume_url text,
+  comments text,
+  custom_fields jsonb,
+  created_at timestamptz default now()
+);
