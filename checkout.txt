@@ -1,0 +1,73 @@
+Efibank Checkout Integration
+============================
+
+1. Configure environment variables
+---------------------------------
+Create a `.env.local` file (this file should **not** be committed) and add:
+
+EFIBANK_CLIENT_ID=Client_Id_89ade8140727154e33cbe9736bcd787202bb5bb0
+EFIBANK_CLIENT_SECRET=Client_Secret_40244e668000e4434dd04bc16cf65456faa88db6
+EFIBANK_ACCOUNT_ID=2b66b5aca795962bc41a5db3c42ea272
+EFIBANK_PIX_KEY=7f03e28f-8ad4-45b0-b452-3552180c6ac4
+EFIBANK_CERTIFICATE_PATH=/home/u375406272/domains/constiva.com/private/homologacao-768533-ConstivaHomolog.p12
+
+2. Install the Efibank SDK
+--------------------------
+Use the official Node SDK to communicate with the Efibank API:
+
+    npm install gn-api-sdk-node --save
+
+3. Create a subscription plan
+-----------------------------
+Example using the SDK:
+
+```ts
+import EfiPay from 'gn-api-sdk-node';
+import fs from 'fs';
+
+const efi = new EfiPay({
+  client_id: process.env.EFIBANK_CLIENT_ID,
+  client_secret: process.env.EFIBANK_CLIENT_SECRET,
+  certificate: fs.readFileSync(process.env.EFIBANK_CERTIFICATE_PATH!)
+});
+
+const plan = await efi.createPlan({}, {
+  name: 'Plano Mensal',
+  interval: 1, // mensal
+  repeats: 0  // 0 = recorrência indefinida
+});
+```
+
+4. Create a subscription in one step
+------------------------------------
+```ts
+await efi.createSubscriptionOneStep({ id: plan.data.plan_id }, {
+  customer: {
+    name: 'Cliente Teste',
+    email: 'cliente@example.com'
+  },
+  items: [{ name: 'Assinatura', value: 1000, amount: 1 }],
+  payment: {
+    credit_card: {
+      customer: {
+        billing_address: {
+          street: 'Rua Teste',
+          number: 1,
+          zipcode: '00000-000'
+        }
+      },
+      installments: 1
+    }
+  }
+});
+```
+
+5. Monitor and manage subscriptions
+-----------------------------------
+- Use `GET /v1/subscription/:id` to fetch subscription status.
+- Retry failed card payments with `POST /v1/charge/:id/retry`.
+- Cancel a subscription via `PUT /v1/subscription/:id/cancel`.
+
+These commands implement a monthly recurring charge (interval 1).
+Refer to Efibank’s documentation for additional options like trial
+periods, boleto payments and metadata updates.
