@@ -100,7 +100,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-40">
         <div className="bg-white rounded p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto">
           <div className="flex justify-between items-center mb-4">
             <h2 className="text-xl font-bold">Ficha do Funcionário</h2>
@@ -168,7 +168,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
       </div>
       {showFields && (
         <div
-          className="fixed inset-0 bg-black/50 flex items-center justify-center z-60"
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
           onClick={() => setShowFields(false)}
         >
           <div
