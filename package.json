@@ -13,5 +13,11 @@
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "@supabase/supabase-js": "^2.43.1"
+  },
+  "devDependencies": {
+    "@types/node": "20.11.19",
+    "@types/react": "18.2.37",
+    "@types/react-dom": "18.2.15",
+    "typescript": "5.4.2"
   }
 }
