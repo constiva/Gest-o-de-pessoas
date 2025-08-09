@@ -561,7 +561,7 @@ export default function Employees() {
           ))}
         </div>
       )}
-      <div className="mt-4 max-w-full overflow-x-auto">
+      <div className="mt-4 w-full overflow-x-auto">
         <table className="min-w-full border border-purple-100 text-sm border-collapse">
           <thead className="bg-purple-50">
             <tr>
