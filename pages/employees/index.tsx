@@ -50,6 +50,7 @@ export default function Employees() {
     new Date().toISOString().slice(0, 10)
   );
   const [dismissReason, setDismissReason] = useState('');
+  const [showFilter, setShowFilter] = useState(false);
   const router = useRouter();
 
   const refreshCounts = (data: Employee[]) => {
@@ -91,6 +92,8 @@ export default function Employees() {
     const saved = localStorage.getItem('employeeColumns');
     setColumns(saved ? JSON.parse(saved) : all);
     setField(all[0] || '');
+    const savedFilters = localStorage.getItem('employeeFilters');
+    setFilters(savedFilters ? JSON.parse(savedFilters) : []);
   };
 
   useEffect(() => {
@@ -102,6 +105,10 @@ export default function Employees() {
       localStorage.setItem('employeeColumns', JSON.stringify(columns));
     }
   }, [columns]);
+
+  useEffect(() => {
+    localStorage.setItem('employeeFilters', JSON.stringify(filters));
+  }, [filters]);
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
   const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
@@ -297,7 +304,7 @@ export default function Employees() {
       `<!DOCTYPE html><html><head><title>Fichas</title><style>` +
       `table{border-collapse:collapse;width:100%}th,td{border:1px solid #ddd;padding:4px}` +
       `h2{margin:0 0 10px 0}h3{margin:10px 0 4px 0}` +
-      `.card{border:1px solid #ddd;padding:10px;margin-bottom:10px}` +
+      `.card{border:1px solid #ddd;padding:10px;margin-bottom:20px}` +
       `.label{font-weight:bold;background:#f9f9f9}` +
       `</style></head><body>` +
       filtered
@@ -313,206 +320,219 @@ export default function Employees() {
 
   return (
     <Layout>
-      <h1 className="text-2xl font-bold mb-4">Funcionários</h1>
+      <div className="flex justify-between items-center mb-4">
+        <h1 className="text-2xl font-bold">Funcionários</h1>
+        <div className="flex gap-2">
+          <Button asChild>
+            <Link href="/employees/new">Adicionar Funcionário</Link>
+          </Button>
+          <Button variant="outline" onClick={() => setConfigOpen(true)}>
+            Configurações
+          </Button>
+        </div>
+      </div>
       <EmployeeStats
         active={counts.active}
         inactive={counts.inactive}
         dismissed={counts.dismissed}
       />
-      <div className="mt-4 flex flex-wrap items-center gap-2">
-        <select
-          className="border p-1"
-          value={filterType}
-          onChange={(e) => setFilterType(e.target.value as any)}
-        >
-          <option value="standard">Campo padrão</option>
-          <option value="custom">Campo personalizado</option>
-        </select>
-        {filterType === 'standard' ? (
-          <>
-            <select
-              className="border p-1"
-              value={field}
-              onChange={(e) => setField(e.target.value)}
+      <div className="flex justify-between items-center mt-4 relative">
+        <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFilter(!showFilter)}
+          >
+            Adicionar filtro
+          </Button>
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowColumns(!showColumns)}
             >
-              {allColumns.map((c) => (
-                <option key={c} value={c}>
-                  {getFieldLabel(c)}
-                </option>
-              ))}
-            </select>
-            {isTextField(field) ? (
-              <input
-                className="border p-1"
-                value={textValue}
-                onChange={(e) => setTextValue(e.target.value)}
-                placeholder="texto"
-              />
-            ) : isRangeField(field) ? (
-              <>
-                <input
-                  className="border p-1 w-24"
-                  type={field === 'salary' ? 'number' : 'date'}
-                  value={rangeStart}
-                  onChange={(e) => setRangeStart(e.target.value)}
-                  placeholder="mín"
-                />
-                <input
-                  className="border p-1 w-24"
-                  type={field === 'salary' ? 'number' : 'date'}
-                  value={rangeEnd}
-                  onChange={(e) => setRangeEnd(e.target.value)}
-                  placeholder="máx"
-                />
-              </>
-            ) : (
+              Colunas
+            </Button>
+            {showColumns && (
+              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto">
+                {allColumns.map((c) => (
+                  <label key={c} className="block">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={columns.includes(c)}
+                      onChange={(e) =>
+                        setColumns(
+                          e.target.checked
+                            ? [...columns, c]
+                            : columns.filter((col) => col !== c)
+                        )
+                      }
+                    />
+                    {getFieldLabel(c)}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="relative">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowPrint(!showPrint)}
+            >
+              Imprimir
+            </Button>
+            {showPrint && (
+              <div className="absolute right-0 mt-2 bg-white border p-2 z-20">
+                <button
+                  className="block text-left w-full hover:underline text-sm"
+                  onClick={() => {
+                    setShowPrint(false);
+                    printList();
+                  }}
+                >
+                  Lista
+                </button>
+                <button
+                  className="block text-left w-full hover:underline text-sm"
+                  onClick={() => {
+                    setShowPrint(false);
+                    printProfiles();
+                  }}
+                >
+                  Fichas
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {showFilter && (
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <select
+            className="border p-1"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as any)}
+          >
+            <option value="standard">Campo padrão</option>
+            <option value="custom">Campo personalizado</option>
+          </select>
+          {filterType === 'standard' ? (
+            <>
               <select
                 className="border p-1"
-                value={value}
-                onChange={(e) => setValue(e.target.value)}
+                value={field}
+                onChange={(e) => setField(e.target.value)}
+              >
+                {allColumns.map((c) => (
+                  <option key={c} value={c}>
+                    {getFieldLabel(c)}
+                  </option>
+                ))}
+              </select>
+              {isTextField(field) ? (
+                <input
+                  className="border p-1"
+                  value={textValue}
+                  onChange={(e) => setTextValue(e.target.value)}
+                  placeholder="texto"
+                />
+              ) : isRangeField(field) ? (
+                <>
+                  <input
+                    className="border p-1 w-24"
+                    type={field === 'salary' ? 'number' : 'date'}
+                    value={rangeStart}
+                    onChange={(e) => setRangeStart(e.target.value)}
+                    placeholder="mín"
+                  />
+                  <input
+                    className="border p-1 w-24"
+                    type={field === 'salary' ? 'number' : 'date'}
+                    value={rangeEnd}
+                    onChange={(e) => setRangeEnd(e.target.value)}
+                    placeholder="máx"
+                  />
+                </>
+              ) : (
+                <select
+                  className="border p-1"
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                >
+                  <option value="">valor</option>
+                  {valueOptions.map((v) => (
+                    <option key={v} value={v}>
+                      {v}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </>
+          ) : (
+            <>
+              <select
+                className="border p-1"
+                value={customFieldName}
+                onChange={(e) => {
+                  setCustomFieldName(e.target.value);
+                  setCustomFieldValue('');
+                }}
+              >
+                <option value="">campo</option>
+                {Object.keys(customFieldDefs).map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="border p-1"
+                value={customFieldValue}
+                onChange={(e) => setCustomFieldValue(e.target.value)}
               >
                 <option value="">valor</option>
-                {valueOptions.map((v) => (
+                {(customFieldDefs[customFieldName] || []).map((v) => (
                   <option key={v} value={v}>
                     {v}
                   </option>
                 ))}
               </select>
-            )}
-          </>
-        ) : (
-          <>
-            <select
-              className="border p-1"
-              value={customFieldName}
-              onChange={(e) => {
-                setCustomFieldName(e.target.value);
-                setCustomFieldValue('');
-              }}
-            >
-              <option value="">campo</option>
-              {Object.keys(customFieldDefs).map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
-            <select
-              className="border p-1"
-              value={customFieldValue}
-              onChange={(e) => setCustomFieldValue(e.target.value)}
-            >
-              <option value="">valor</option>
-              {(customFieldDefs[customFieldName] || []).map((v) => (
-                <option key={v} value={v}>
-                  {v}
-                </option>
-              ))}
-            </select>
-          </>
-        )}
-        <Button
-          onClick={addFilter}
-          disabled={
-            filterType === 'standard'
-              ? isTextField(field)
-                ? !textValue
-                : isRangeField(field)
-                ? !rangeStart && !rangeEnd
-                : !value
-              : !customFieldValue
-          }
-        >
-          Adicionar filtro
-        </Button>
-      </div>
-      <div className="mt-2 space-x-2">
-        {filters.map((f, i) => (
-          <span key={i} className="bg-purple-50 p-1 rounded">
-            {`${getFieldLabel(f.field)}:`}
-            {f.type === 'range'
-              ? `${f.min || ''}-${f.max || ''}`
-              : f.value}
-            <button className="ml-1" onClick={() => removeFilter(i)}>
-              x
-            </button>
-          </span>
-        ))}
-      </div>
-      <div className="flex justify-between items-center mt-4 relative">
-        <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
-        <div className="relative">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setShowColumns(!showColumns)}
-          >
-            Colunas
-          </Button>
-          {showColumns && (
-            <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto">
-              {allColumns.map((c) => (
-                <label key={c} className="block">
-                  <input
-                    type="checkbox"
-                    className="mr-2"
-                    checked={columns.includes(c)}
-                    onChange={(e) =>
-                      setColumns(
-                        e.target.checked
-                          ? [...columns, c]
-                          : columns.filter((col) => col !== c)
-                      )
-                    }
-                  />
-                  {getFieldLabel(c)}
-                </label>
-              ))}
-            </div>
+            </>
           )}
-        </div>
-      </div>
-      <div className="my-4 space-x-4 flex items-center">
-        <Link href="/employees/new" className="text-brand hover:underline">
-          + Adicionar Funcionário
-        </Link>
-        <button
-          onClick={() => setConfigOpen(true)}
-          className="text-brand hover:underline"
-        >
-          Configurações
-        </button>
-        <div className="relative">
           <Button
-            variant="outline"
-            onClick={() => setShowPrint(!showPrint)}
+            onClick={addFilter}
+            disabled={
+              filterType === 'standard'
+                ? isTextField(field)
+                  ? !textValue
+                  : isRangeField(field)
+                  ? !rangeStart && !rangeEnd
+                  : !value
+                : !customFieldValue
+            }
           >
-            Imprimir
+            Aplicar
           </Button>
-          {showPrint && (
-            <div className="absolute right-0 mt-2 bg-white border p-2 z-20">
-              <button
-                className="block text-left w-full hover:underline text-sm"
-                onClick={() => {
-                  setShowPrint(false);
-                  printList();
-                }}
-              >
-                Lista
-              </button>
-              <button
-                className="block text-left w-full hover:underline text-sm"
-                onClick={() => {
-                  setShowPrint(false);
-                  printProfiles();
-                }}
-              >
-                Fichas
-              </button>
-            </div>
-          )}
         </div>
-      </div>
+      )}
+      {filters.length > 0 && (
+        <div className="mt-2 space-x-2">
+          {filters.map((f, i) => (
+            <span key={i} className="bg-purple-50 p-1 rounded">
+              {`${getFieldLabel(f.field)}:`}
+              {f.type === 'range'
+                ? `${f.min || ''}-${f.max || ''}`
+                : f.value}
+              <button className="ml-1" onClick={() => removeFilter(i)}>
+                x
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <table className="w-full border border-purple-100 text-sm">
         <thead className="bg-purple-50">
           <tr>
