@@ -561,86 +561,114 @@ export default function Employees() {
           ))}
         </div>
       )}
-      <table className="w-full border border-purple-100 text-sm border-collapse mt-4">
-        <thead className="bg-purple-50">
-          <tr>
-            {columns.map((c) => (
-              <th key={c} className="border px-2 py-1">
-                {getFieldLabel(c)}
-              </th>
-            ))}
-            <th className="border px-2 py-1">Ações</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((emp) => (
-            <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
+      <div className="mt-4 max-w-full overflow-x-auto">
+        <table className="min-w-full border border-purple-100 text-sm border-collapse">
+          <thead className="bg-purple-50">
+            <tr>
               {columns.map((c) => (
-                <td key={c} className="border px-2 py-1">
-                  {emp[c]}
-                </td>
+                <th key={c} className="border px-2 py-1">
+                  {getFieldLabel(c)}
+                </th>
               ))}
-              <td className="border px-2 py-1">
-                <div className="relative actions-menu">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      setOpenActions(openActions === emp.id ? null : emp.id)
-                    }
-                  >
-                    ...
-                  </Button>
-                  {openActions === emp.id && (
-                    <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
-                      <div>
-                        <button
-                          className="text-left text-sm text-brand hover:underline"
-                          onClick={() => {
-                            setOpenActions(null);
-                            setViewId(emp.id);
-                          }}
-                        >
-                          Visualizar
-                        </button>
-                      </div>
-                      <div>
-                        <button
-                          className="text-left text-sm text-brand hover:underline"
-                          onClick={() => {
-                            setOpenActions(null);
-                            router.push(`/employees/${emp.id}`);
-                          }}
-                        >
-                          Editar
-                        </button>
-                      </div>
-                      {emp.status === 'active' ? (
-                        <>
-                          <div>
-                            <button
-                              className="text-left text-sm text-brand hover:underline"
-                              onClick={() => updateStatus(emp.id, 'inactive')}
-                            >
-                              Inativar
-                            </button>
-                          </div>
-                          <div>
-                            <button
-                              className="text-left text-sm text-brand hover:underline"
-                              onClick={() => {
-                                setOpenActions(null);
-                                setDismissDate(new Date().toISOString().slice(0, 10));
-                                setDismissReason('');
-                                setDismissId(emp.id);
-                              }}
-                            >
-                              Desligar
-                            </button>
-                          </div>
-                        </>
-                      ) : emp.status === 'inactive' ? (
-                        <>
+              <th className="border px-2 py-1">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((emp) => (
+              <tr key={emp.id} className="odd:bg-white even:bg-purple-50/40">
+                {columns.map((c) => (
+                  <td key={c} className="border px-2 py-1">
+                    {emp[c]}
+                  </td>
+                ))}
+                <td className="border px-2 py-1">
+                  <div className="relative actions-menu">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() =>
+                        setOpenActions(openActions === emp.id ? null : emp.id)
+                      }
+                    >
+                      ...
+                    </Button>
+                    {openActions === emp.id && (
+                      <div className="absolute right-0 bg-white border p-2 z-10 space-y-1">
+                        <div>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => {
+                              setOpenActions(null);
+                              setViewId(emp.id);
+                            }}
+                          >
+                            Visualizar
+                          </button>
+                        </div>
+                        <div>
+                          <button
+                            className="text-left text-sm text-brand hover:underline"
+                            onClick={() => {
+                              setOpenActions(null);
+                              router.push(`/employees/${emp.id}`);
+                            }}
+                          >
+                            Editar
+                          </button>
+                        </div>
+                        {emp.status === 'active' ? (
+                          <>
+                            <div>
+                              <button
+                                className="text-left text-sm text-brand hover:underline"
+                                onClick={() => updateStatus(emp.id, 'inactive')}
+                              >
+                                Inativar
+                              </button>
+                            </div>
+                            <div>
+                              <button
+                                className="text-left text-sm text-brand hover:underline"
+                                onClick={() => {
+                                  setOpenActions(null);
+                                  setDismissDate(
+                                    new Date().toISOString().slice(0, 10)
+                                  );
+                                  setDismissReason('');
+                                  setDismissId(emp.id);
+                                }}
+                              >
+                                Desligar
+                              </button>
+                            </div>
+                          </>
+                        ) : emp.status === 'inactive' ? (
+                          <>
+                            <div>
+                              <button
+                                className="text-left text-sm text-brand hover:underline"
+                                onClick={() => updateStatus(emp.id, 'active')}
+                              >
+                                Ativar
+                              </button>
+                            </div>
+                            <div>
+                              <button
+                                className="text-left text-sm text-brand hover:underline"
+                                onClick={() => {
+                                  setOpenActions(null);
+                                  setDismissDate(
+                                    new Date().toISOString().slice(0, 10)
+                                  );
+                                  setDismissReason('');
+                                  setDismissId(emp.id);
+                                }}
+                              >
+                                Desligar
+                              </button>
+                            </div>
+                          </>
+                        ) : (
                           <div>
                             <button
                               className="text-left text-sm text-brand hover:underline"
@@ -649,38 +677,16 @@ export default function Employees() {
                               Ativar
                             </button>
                           </div>
-                          <div>
-                            <button
-                              className="text-left text-sm text-brand hover:underline"
-                              onClick={() => {
-                                setOpenActions(null);
-                                setDismissDate(new Date().toISOString().slice(0, 10));
-                                setDismissReason('');
-                                setDismissId(emp.id);
-                              }}
-                            >
-                              Desligar
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <div>
-                          <button
-                            className="text-left text-sm text-brand hover:underline"
-                            onClick={() => updateStatus(emp.id, 'active')}
-                          >
-                            Ativar
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       <EmployeeConfigModal
         open={configOpen}
         onClose={() => {
