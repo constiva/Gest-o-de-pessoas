@@ -8,7 +8,19 @@ import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
 import { getFieldLabel } from '../../lib/utils';
-import { Users } from 'lucide-react';
+import {
+  Users,
+  UserPlus,
+  Settings,
+  Filter,
+  Columns,
+  Printer,
+  Eye,
+  Pencil,
+  UserMinus,
+  UserX,
+  UserCheck,
+} from 'lucide-react';
 
 const defaultViewCols = ['name','email','phone','cpf','position','department'];
 
@@ -434,10 +446,16 @@ export default function Employees() {
         <h1 className="text-2xl font-bold">Funcionários</h1>
         <div className="flex gap-2">
           <Button asChild>
-            <Link href="/employees/new">Adicionar Funcionário</Link>
+            <Link href="/employees/new" className="flex items-center gap-1">
+              <UserPlus className="h-4 w-4" /> Adicionar Funcionário
+            </Link>
           </Button>
-          <Button variant="outline" onClick={() => setConfigOpen(true)}>
-            Configurações
+          <Button
+            variant="outline"
+            onClick={() => setConfigOpen(true)}
+            className="flex items-center gap-1"
+          >
+            <Settings className="h-4 w-4" /> Configurações
           </Button>
         </div>
       </div>
@@ -482,16 +500,18 @@ export default function Employees() {
             variant="outline"
             size="sm"
             onClick={() => setShowFilter(!showFilter)}
+            className="flex items-center gap-1"
           >
-            Adicionar filtro
+            <Filter className="h-4 w-4" /> Adicionar filtro
           </Button>
           <div className="relative column-menu">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowColumns(!showColumns)}
+              className="flex items-center gap-1"
             >
-              Colunas
+              <Columns className="h-4 w-4" /> Colunas
             </Button>
             {showColumns && (
               <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-72">
@@ -520,8 +540,9 @@ export default function Employees() {
               variant="outline"
               size="sm"
               onClick={() => setShowPrint(!showPrint)}
+              className="flex items-center gap-1"
             >
-              Imprimir
+              <Printer className="h-4 w-4" /> Imprimir
             </Button>
             {showPrint && (
               <div className="absolute right-0 mt-2 bg-white border p-2 z-20">
@@ -722,39 +743,39 @@ export default function Employees() {
         >
           <div>
             <button
-              className="text-left text-sm text-brand hover:underline"
+              className="text-left text-sm text-brand hover:underline flex items-center gap-1"
               onClick={() => {
                 setOpenActions(null);
                 setViewId(activeEmp.id);
               }}
             >
-              Visualizar
+              <Eye className="h-4 w-4" /> Visualizar
             </button>
           </div>
           <div>
             <button
-              className="text-left text-sm text-brand hover:underline"
+              className="text-left text-sm text-brand hover:underline flex items-center gap-1"
               onClick={() => {
                 setOpenActions(null);
                 router.push(`/employees/${activeEmp.id}`);
               }}
             >
-              Editar
+              <Pencil className="h-4 w-4" /> Editar
             </button>
           </div>
           {activeEmp.status === 'active' ? (
             <>
               <div>
                 <button
-                  className="text-left text-sm text-brand hover:underline"
+                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                   onClick={() => updateStatus(activeEmp.id, 'inactive')}
                 >
-                  Inativar
+                  <UserMinus className="h-4 w-4" /> Inativar
                 </button>
               </div>
               <div>
                 <button
-                  className="text-left text-sm text-brand hover:underline"
+                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                   onClick={() => {
                     setOpenActions(null);
                     setDismissDate(new Date().toISOString().slice(0, 10));
@@ -762,7 +783,7 @@ export default function Employees() {
                     setDismissId(activeEmp.id);
                   }}
                 >
-                  Desligar
+                  <UserX className="h-4 w-4" /> Desligar
                 </button>
               </div>
             </>
@@ -770,15 +791,15 @@ export default function Employees() {
             <>
               <div>
                 <button
-                  className="text-left text-sm text-brand hover:underline"
+                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                   onClick={() => updateStatus(activeEmp.id, 'active')}
                 >
-                  Ativar
+                  <UserCheck className="h-4 w-4" /> Ativar
                 </button>
               </div>
               <div>
                 <button
-                  className="text-left text-sm text-brand hover:underline"
+                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                   onClick={() => {
                     setOpenActions(null);
                     setDismissDate(new Date().toISOString().slice(0, 10));
@@ -786,17 +807,17 @@ export default function Employees() {
                     setDismissId(activeEmp.id);
                   }}
                 >
-                  Desligar
+                  <UserX className="h-4 w-4" /> Desligar
                 </button>
               </div>
             </>
           ) : (
             <div>
               <button
-                className="text-left text-sm text-brand hover:underline"
+                className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                 onClick={() => updateStatus(activeEmp.id, 'active')}
               >
-                Ativar
+                <UserCheck className="h-4 w-4" /> Ativar
               </button>
             </div>
           )}
