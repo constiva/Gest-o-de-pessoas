@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/router';
 import { supabase } from '../../lib/supabaseClient';
 import EmployeeStats from '../../components/EmployeeStats';
 
@@ -22,6 +23,8 @@ export default function Employees() {
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [field, setField] = useState('name');
   const [value, setValue] = useState('');
+  const router = useRouter();
+
 
   const refreshCounts = (data: Employee[]) => {
     const active = data.filter((e) => e.status === 'active').length;
@@ -142,6 +145,7 @@ export default function Employees() {
                 <td key={c}>{emp[c]}</td>
               ))}
               <td>
+                <button onClick={() => router.push(`/employees/${emp.id}`)}>Editar</button>{' '}
                 <Link href={`/employees/${emp.id}`}>Editar</Link>{' '}
                 <button onClick={() => updateStatus(emp.id, 'inactive')}>Inativar</button>{' '}
                 <button onClick={() => updateStatus(emp.id, 'dismissed')}>Desligar</button>

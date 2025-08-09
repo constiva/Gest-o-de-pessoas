@@ -55,6 +55,12 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   const [company, setCompany] = useState<any>(null);
 
   useEffect(() => {
+    setForm(employee || defaultEmployee);
+  }, [employee]);
+
+  useEffect(() => {
+
+
     const loadCompany = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) {
