@@ -6,12 +6,14 @@ import EmployeeStats from '../../components/EmployeeStats';
 
 interface Employee {
   id: string;
+  custom_fields?: Record<string, string>;
   [key: string]: any;
 }
 
 interface Filter {
   field: string;
   value: string;
+  custom?: boolean;
 }
 
 export default function Employees() {
@@ -23,6 +25,10 @@ export default function Employees() {
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
   const [valueOptions, setValueOptions] = useState<string[]>([]);
+  const [filterType, setFilterType] = useState<'standard' | 'custom'>('standard');
+  const [customFieldName, setCustomFieldName] = useState('');
+  const [customFieldValue, setCustomFieldValue] = useState('');
+  const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const router = useRouter();
 
   const refreshCounts = (data: Employee[]) => {
@@ -41,19 +47,30 @@ export default function Employees() {
         .select('company_id')
         .eq('id', session.user.id)
         .single();
+      const { data: defs } = await supabase
+        .from('custom_fields')
+        .select('field,value')
+        .eq('company_id', user.company_id);
+      const defMap: Record<string, string[]> = {};
+      defs?.forEach((d: any) => {
+        defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
+      });
+      setCustomFieldDefs(defMap);
       const { data = [] } = await supabase
         .from('employees')
         .select('*')
         .eq('company_id', user.company_id);
-      setEmployees(data);
-      refreshCounts(data);
-      const cols = data.length
-        ? Object.keys(data[0]).filter((k) => k !== 'company_id')
+      const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
+      setEmployees(expanded);
+      refreshCounts(expanded);
+      const cols = expanded.length
+        ? Object.keys(expanded[0]).filter((k) => k !== 'company_id' && k !== 'custom_fields')
         : [];
-      setAllColumns(cols);
+      const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
+      setAllColumns(all);
       const saved = localStorage.getItem('employeeColumns');
-      setColumns(saved ? JSON.parse(saved) : cols);
-      setField(cols[0] || '');
+      setColumns(saved ? JSON.parse(saved) : all);
+      setField(all[0] || '');
     };
     load();
   }, []);
@@ -65,17 +82,23 @@ export default function Employees() {
   }, [columns]);
 
   useEffect(() => {
-    const opts = Array.from(
-      new Set(employees.map((e) => e[field]).filter((v) => v !== undefined && v !== null))
-    );
-    setValueOptions(opts);
-    if (!opts.includes(value)) setValue('');
-  }, [field, employees]);
+    if (filterType === 'standard') {
+      const opts = Array.from(
+        new Set(employees.map((e) => e[field]).filter((v) => v !== undefined && v !== null))
+      );
+      setValueOptions(opts);
+      if (!opts.includes(value)) setValue('');
+    }
+  }, [field, employees, filterType]);
 
   const addFilter = () => {
-    if (value) {
+    if (filterType === 'standard' && value) {
       setFilters([...filters, { field, value }]);
       setValue('');
+    } else if (filterType === 'custom' && customFieldName && customFieldValue) {
+      setFilters([...filters, { field: customFieldName, value: customFieldValue, custom: true }]);
+      setCustomFieldName('');
+      setCustomFieldValue('');
     }
   };
 
@@ -93,7 +116,9 @@ export default function Employees() {
   };
 
   const filtered = employees.filter((emp) =>
-    filters.every((f) => emp[f.field] === f.value)
+    filters.every((f) =>
+      f.custom ? emp.custom_fields?.[f.field] === f.value : emp[f.field] === f.value
+    )
   );
 
   return (
@@ -105,29 +130,65 @@ export default function Employees() {
         dismissed={counts.dismissed}
       />
       <div>
-        <select value={field} onChange={(e) => setField(e.target.value)}>
-          {allColumns.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value as any)}>
+          <option value="standard">Campo padrão</option>
+          <option value="custom">Campo personalizado</option>
         </select>
-        <select value={value} onChange={(e) => setValue(e.target.value)}>
-          <option value="">valor</option>
-          {valueOptions.map((v) => (
-            <option key={v} value={v}>
-              {v}
-            </option>
-          ))}
-        </select>
-        <button onClick={addFilter} disabled={!value}>
+        {filterType === 'standard' ? (
+          <>
+            <select value={field} onChange={(e) => setField(e.target.value)}>
+              {allColumns.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select value={value} onChange={(e) => setValue(e.target.value)}>
+              <option value="">valor</option>
+              {valueOptions.map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <>
+            <select
+              value={customFieldName}
+              onChange={(e) => {
+                setCustomFieldName(e.target.value);
+                setCustomFieldValue('');
+              }}
+            >
+              <option value="">campo</option>
+              {Object.keys(customFieldDefs).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+            <select
+              value={customFieldValue}
+              onChange={(e) => setCustomFieldValue(e.target.value)}
+            >
+              <option value="">valor</option>
+              {(customFieldDefs[customFieldName] || []).map((v) => (
+                <option key={v} value={v}>
+                  {v}
+                </option>
+              ))}
+            </select>
+          </>
+        )}
+        <button onClick={addFilter} disabled={filterType === 'standard' ? !value : !customFieldValue}>
           Adicionar filtro
         </button>
       </div>
       <div>
         {filters.map((f, i) => (
           <span key={i} style={{ marginRight: 8 }}>
-            {f.field}:{f.value}
+            {`${f.field}:${f.value}`}
             <button onClick={() => removeFilter(i)}>x</button>
           </span>
         ))}
@@ -158,7 +219,10 @@ export default function Employees() {
           ))}
         </details>
       </div>
-      <Link href="/employees/new">+ Adicionar Funcionário</Link>
+      <div>
+        <Link href="/employees/new">+ Adicionar Funcionário</Link>{' '}
+        <Link href="/employees/config">Configurações</Link>
+      </div>
       <table border="1" cellPadding="4">
         <thead>
           <tr>

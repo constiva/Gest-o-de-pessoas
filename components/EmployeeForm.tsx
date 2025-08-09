@@ -23,6 +23,7 @@ interface Employee {
   emergency_contact_relation: string;
   resume_url: string;
   comments: string;
+  custom_fields: Record<string, string>;
   company_id?: string;
 }
 
@@ -45,17 +46,19 @@ const defaultEmployee: Employee = {
   emergency_contact_phone: '',
   emergency_contact_relation: '',
   resume_url: '',
-  comments: ''
+  comments: '',
+  custom_fields: {},
 };
 
 export default function EmployeeForm({ employee }: { employee?: Employee }) {
-  const [form, setForm] = useState<Employee>(employee || defaultEmployee);
+  const [form, setForm] = useState<Employee>(employee ? { ...employee, custom_fields: employee.custom_fields || {} } : defaultEmployee);
   const router = useRouter();
   const isEdit = !!employee;
   const [company, setCompany] = useState<any>(null);
+  const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
 
   useEffect(() => {
-    setForm(employee || defaultEmployee);
+    setForm(employee ? { ...employee, custom_fields: employee.custom_fields || {} } : defaultEmployee);
   }, [employee]);
 
   useEffect(() => {
@@ -76,6 +79,15 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
         .eq('id', user.company_id)
         .single();
       setCompany(comp);
+      const { data: defs } = await supabase
+        .from('custom_fields')
+        .select('field,value')
+        .eq('company_id', user.company_id);
+      const map: Record<string, string[]> = {};
+      defs?.forEach((d: any) => {
+        map[d.field] = map[d.field] ? [...map[d.field], d.value] : [d.value];
+      });
+      setCustomFieldDefs(map);
     };
     loadCompany();
   }, [router]);
@@ -86,6 +98,10 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
     >
   ) => {
     setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleCustomFieldChange = (field: string, value: string) => {
+    setForm({ ...form, custom_fields: { ...form.custom_fields, [field]: value } });
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -139,6 +155,22 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
       <input name="emergency_contact_relation" placeholder="Relação" value={form.emergency_contact_relation} onChange={handleChange} />
       <input name="resume_url" placeholder="URL do Currículo" value={form.resume_url} onChange={handleChange} />
       <textarea name="comments" placeholder="Comentários" value={form.comments} onChange={handleChange} />
+      {Object.entries(customFieldDefs).map(([field, options]) => (
+        <div key={field}>
+          <label>{field}</label>
+          <select
+            value={form.custom_fields[field] || ''}
+            onChange={(e) => handleCustomFieldChange(field, e.target.value)}
+          >
+            <option value="">Selecione</option>
+            {options.map((opt) => (
+              <option key={opt} value={opt}>
+                {opt}
+              </option>
+            ))}
+          </select>
+        </div>
+      ))}
       <button type="submit">Salvar</button>
     </form>
   );
