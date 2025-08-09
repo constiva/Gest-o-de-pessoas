@@ -29,10 +29,17 @@ export async function createEfibankSubscription(
   card: Card
 ) {
   logDebug('Starting subscription flow', { plan, customer });
+  const certEnv = process.env.EFIBANK_CERTIFICATE_PATH;
+  const certPath = certEnv ? path.resolve(certEnv) : '';
+  if (!certPath || !fs.existsSync(certPath)) {
+    const msg = `Efibank certificate not found at "${certEnv}"`;
+    logDebug(msg);
+    throw new Error(msg);
+  }
   const efi = new EfiPay({
     client_id: process.env.EFIBANK_CLIENT_ID,
     client_secret: process.env.EFIBANK_CLIENT_SECRET,
-    certificate: fs.readFileSync(process.env.EFIBANK_CERTIFICATE_PATH as string),
+    certificate: fs.readFileSync(certPath),
     sandbox: true
   });
 
