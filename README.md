@@ -72,9 +72,13 @@ create table public.departments (
   name text not null
 );
 
-create table public.employee_filters (
-  user_id uuid primary key references public.users(id) on delete cascade,
-  filters jsonb
+create table public.employee_views (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references public.users(id) on delete cascade,
+  name text not null,
+  columns text[],
+  filters jsonb,
+  created_at timestamptz default now()
 );
 ```
 
@@ -83,6 +87,6 @@ Após registrar um usuário, ele será redirecionado para `/dashboard`.
 A página `/dashboard` exibe métricas simples de funcionários. A gestão de funcionários (CRUD, filtros e contadores) está em `/employees`.
 Nesta página é possível escolher quais colunas aparecem, filtrar múltiplos campos e usar o botão de reticências para visualizar, editar ou alterar o status do colaborador (com opção de ativar novamente). Tanto a lista filtrada quanto a ficha individual possuem um botão de impressão que respeita os campos selecionados.
 
-Filtros aplicados na listagem são persistidos por usuário na tabela `employee_filters`, garantindo que as preferências de busca permaneçam em novas sessões.
+Cada usuário pode salvar colunas visíveis e filtros em múltiplas listas personalizadas. Essas configurações ficam armazenadas na tabela `employee_views` e são recarregadas automaticamente nas próximas sessões.
 
 As configurações de Departamentos e Campos personalizados podem ser acessadas por um modal com menu lateral para CRUD completo.

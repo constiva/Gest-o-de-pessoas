@@ -9,6 +9,8 @@ import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
 import { getFieldLabel } from '../../lib/utils';
 
+const defaultViewCols = ['name','email','phone','cpf','position','department'];
+
 interface Employee {
   id: string;
   custom_fields?: Record<string, string>;
@@ -30,6 +32,8 @@ export default function Employees() {
   const [columns, setColumns] = useState<string[]>([]);
   const [filters, setFilters] = useState<Filter[]>([]);
   const [filtersReady, setFiltersReady] = useState(false);
+  const [views, setViews] = useState<any[]>([]);
+  const [currentView, setCurrentView] = useState<any | null>(null);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
@@ -101,15 +105,32 @@ export default function Employees() {
       : [];
     const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
     setAllColumns(all);
-    const saved = localStorage.getItem('employeeColumns');
-    setColumns(saved ? JSON.parse(saved) : all);
-    setField(all[0] || '');
-    const { data: savedFilters } = await supabase
-      .from('employee_filters')
-      .select('filters')
+    const { data: viewRows } = await supabase
+      .from('employee_views')
+      .select('*')
       .eq('user_id', session.user.id)
-      .single();
-    setFilters(savedFilters?.filters || []);
+      .order('created_at', { ascending: true });
+    let view = viewRows && viewRows.length ? viewRows[0] : null;
+    if (!view) {
+      const { data: created } = await supabase
+        .from('employee_views')
+        .insert({
+          user_id: session.user.id,
+          name: 'Principal',
+          columns: defaultViewCols,
+          filters: [],
+        })
+        .select()
+        .single();
+      view = created;
+      setViews([created]);
+    } else {
+      setViews(viewRows);
+    }
+    setCurrentView(view);
+    setColumns(view?.columns && view.columns.length ? view.columns : defaultViewCols);
+    setFilters(view?.filters || []);
+    setField(all[0] || '');
     setFiltersReady(true);
   };
 
@@ -117,24 +138,42 @@ export default function Employees() {
     load();
   }, []);
 
+  const switchView = (v: any) => {
+    setCurrentView(v);
+    setColumns(v.columns || []);
+    setFilters(v.filters || []);
+    setField(allColumns[0] || '');
+  };
+
+  const addView = async () => {
+    const name = prompt('Nome da nova lista');
+    if (!name) return;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session) return;
+    const { data: created } = await supabase
+      .from('employee_views')
+      .insert({
+        user_id: session.user.id,
+        name,
+        columns: defaultViewCols,
+        filters: [],
+      })
+      .select()
+      .single();
+    setViews([...views, created]);
+    switchView(created);
+  };
+
   useEffect(() => {
-    if (columns.length) {
-      localStorage.setItem('employeeColumns', JSON.stringify(columns));
-    }
-  }, [columns]);
+    if (!currentView) return;
+    supabase.from('employee_views').update({ columns }).eq('id', currentView.id);
+  }, [columns, currentView]);
   useEffect(() => {
-    if (!filtersReady) return;
-    const save = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) return;
-      await supabase
-        .from('employee_filters')
-        .upsert({ user_id: session.user.id, filters });
-    };
-    save();
-  }, [filters, filtersReady]);
+    if (!filtersReady || !currentView) return;
+    supabase.from('employee_views').update({ filters }).eq('id', currentView.id);
+  }, [filters, filtersReady, currentView]);
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
   const isRangeField = (f: string) => f === 'salary' || f.endsWith('_date');
@@ -363,6 +402,21 @@ export default function Employees() {
         inactive={counts.inactive}
         dismissed={counts.dismissed}
       />
+      <div className="mt-4 flex gap-2">
+        {views.map((v) => (
+          <Button
+            key={v.id}
+            variant={currentView?.id === v.id ? 'default' : 'outline'}
+            size="sm"
+            onClick={() => switchView(v)}
+          >
+            {v.name}
+          </Button>
+        ))}
+        <Button variant="outline" size="sm" onClick={addView}>
+          Nova lista
+        </Button>
+      </div>
       <div className="flex justify-between items-center mt-4 relative">
         <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
         <div className="flex items-center gap-2">

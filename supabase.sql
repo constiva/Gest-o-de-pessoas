@@ -56,7 +56,11 @@ create table public.departments (
   name text not null
 );
 
-create table public.employee_filters (
-  user_id uuid primary key references public.users(id) on delete cascade,
-  filters jsonb
+create table public.employee_views (
+  id uuid primary key default uuid_generate_v4(),
+  user_id uuid references public.users(id) on delete cascade,
+  name text not null,
+  columns text[],
+  filters jsonb,
+  created_at timestamptz default now()
 );
