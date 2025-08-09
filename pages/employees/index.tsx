@@ -7,7 +7,7 @@ import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
-import { getFieldLabel } from '../../lib/utils';
+import { getFieldLabel, FIELD_GROUPS } from '../../lib/utils';
 import {
   Users,
   UserPlus,
@@ -354,33 +354,10 @@ export default function Employees() {
   );
 
   const generateProfileHTML = (emp: any, fields: string[]) => {
-    const groups = [
-      {
-        title: 'Informações pessoais',
-        fields: ['name', 'email', 'phone', 'cpf', 'gender'],
-      },
-      { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
-      {
-        title: 'Informações profissionais',
-        fields: ['position', 'department', 'salary', 'hire_date', 'status'],
-      },
-      {
-        title: 'Contato de emergência',
-        fields: [
-          'emergency_contact_name',
-          'emergency_contact_phone',
-          'emergency_contact_relation',
-        ],
-      },
-      {
-        title: 'Outros',
-        fields: ['resume_url', 'comments'],
-      },
-    ];
     const customEntries = emp.custom_fields ? Object.entries(emp.custom_fields) : [];
     const customFields = customEntries.filter(([k]) => fields.includes(k));
     let html = `<div class="card"><h2>${emp.name || ''}</h2>`;
-    groups.forEach((g) => {
+    FIELD_GROUPS.forEach((g) => {
       const rows = g.fields
         .filter((f) => fields.includes(f) && emp[f])
         .map(
@@ -526,7 +503,7 @@ export default function Employees() {
             </Button>
             {showColumns && (
               <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-72">
-                {groups.map((g) => {
+                {FIELD_GROUPS.map((g) => {
                   const cols = g.fields.filter((f) => allColumns.includes(f));
                   if (!cols.length) return null;
                   return (
@@ -553,12 +530,12 @@ export default function Employees() {
                   );
                 })}
                 {allColumns.filter(
-                  (c) => !groups.some((g) => g.fields.includes(c))
+                  (c) => !FIELD_GROUPS.some((g) => g.fields.includes(c))
                 ).length > 0 && (
                   <div>
                     <p className="font-semibold text-sm mb-1">Campos personalizados</p>
                     {allColumns
-                      .filter((c) => !groups.some((g) => g.fields.includes(c)))
+                      .filter((c) => !FIELD_GROUPS.some((g) => g.fields.includes(c)))
                       .map((c) => (
                         <label key={c} className="block pl-2">
                           <input

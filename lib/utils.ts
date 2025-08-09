@@ -32,3 +32,24 @@ export const FIELD_LABELS: Record<string, string> = {
 export function getFieldLabel(field: string) {
   return FIELD_LABELS[field] || field;
 }
+
+export const FIELD_GROUPS = [
+  {
+    title: 'Informações pessoais',
+    fields: ['name', 'email', 'phone', 'cpf', 'gender'],
+  },
+  { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
+  {
+    title: 'Informações profissionais',
+    fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+  },
+  {
+    title: 'Contato de emergência',
+    fields: [
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'emergency_contact_relation',
+    ],
+  },
+  { title: 'Outros', fields: ['resume_url', 'comments'] },
+];

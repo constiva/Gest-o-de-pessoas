@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
-import { getFieldLabel } from '../lib/utils';
+import { getFieldLabel, FIELD_GROUPS } from '../lib/utils';
 import { Columns, Printer, X } from 'lucide-react';
 
 interface Props {
@@ -43,15 +43,6 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
     }
   }, [fields]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (!target.closest('.view-fields-menu')) setShowFields(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   if (!employee) return null;
 
   const baseEntries = Object.entries(employee).filter(
@@ -60,42 +51,11 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
   const customEntries = employee.custom_fields
     ? Object.entries(employee.custom_fields)
     : [];
-  const entries = [...baseEntries, ...customEntries].filter(([k]) =>
-    fields.includes(k)
-  );
-
-  const groups = [
-    {
-      title: 'Informações pessoais',
-      fields: ['name', 'email', 'phone', 'cpf', 'gender'],
-    },
-    {
-      title: 'Endereço',
-      fields: ['street', 'city', 'state', 'zip'],
-    },
-    {
-      title: 'Informações profissionais',
-      fields: ['position', 'department', 'salary', 'hire_date', 'status'],
-    },
-    {
-      title: 'Contato de emergência',
-      fields: [
-        'emergency_contact_name',
-        'emergency_contact_phone',
-        'emergency_contact_relation',
-      ],
-    },
-    {
-      title: 'Outros',
-      fields: ['resume_url', 'comments'],
-    },
-  ];
-
   const customFieldEntries = customEntries.filter(([k]) => fields.includes(k));
 
   const generateProfileHTML = () => {
     let html = `<div class=\"card\"><h2>${employee.name || ''}</h2>`;
-    groups.forEach((g) => {
+    FIELD_GROUPS.forEach((g) => {
       const rows = g.fields
         .filter((f) => fields.includes(f) && employee[f])
         .map(
@@ -139,46 +99,24 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-white rounded p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-xl font-bold">Ficha do Funcionário</h2>
-          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <div className="flex items-start gap-2 mb-4">
-          <div className="relative view-fields-menu">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowFields(!showFields)}
-              className="flex items-center gap-1"
-            >
-              <Columns className="h-4 w-4" /> Campos
-            </Button>
-            {showFields && (
-              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
-                {allFields.map((f) => (
-                  <label key={f} className="block">
-                    <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={fields.includes(f)}
-                      onChange={(e) =>
-                        setFields(
-                          e.target.checked
-                            ? [...fields, f]
-                            : fields.filter((x) => x !== f)
-                        )
-                      }
-                    />
-                    {getFieldLabel(f)}
-                  </label>
-                ))}
-              </div>
-            )}
+    <>
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-white rounded p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Ficha do Funcionário</h2>
+            <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+              <X className="h-4 w-4" />
+            </button>
           </div>
+        <div className="flex items-start gap-2 mb-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFields(true)}
+            className="flex items-center gap-1"
+          >
+            <Columns className="h-4 w-4" /> Campos
+          </Button>
           <Button
             variant="outline"
             size="sm"
@@ -188,7 +126,7 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
         </div>
-        {groups.map((group) => {
+        {FIELD_GROUPS.map((group) => {
           const groupRows = group.fields
             .filter((f) =>
               typeof (employee as any)[f] !== 'undefined' && fields.includes(f)
@@ -226,7 +164,79 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             </table>
           </div>
         )}
+        </div>
       </div>
-    </div>
+      {showFields && (
+        <div
+          className="fixed inset-0 bg-black/50 flex items-center justify-center z-60"
+          onClick={() => setShowFields(false)}
+        >
+          <div
+            className="bg-white rounded p-4 w-72 max-h-[80vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="font-semibold">Campos</h3>
+              <button
+                onClick={() => setShowFields(false)}
+                className="p-1 rounded hover:bg-gray-100"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {FIELD_GROUPS.map((g) => {
+              const fs = g.fields.filter((f) => allFields.includes(f));
+              if (!fs.length) return null;
+              return (
+                <div key={g.title} className="mb-2">
+                  <p className="font-semibold text-sm mb-1">{g.title}</p>
+                  {fs.map((f) => (
+                    <label key={f} className="block pl-2">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={fields.includes(f)}
+                        onChange={(e) =>
+                          setFields(
+                            e.target.checked
+                              ? [...fields, f]
+                              : fields.filter((x) => x !== f)
+                          )
+                        }
+                      />
+                      {getFieldLabel(f)}
+                    </label>
+                  ))}
+                </div>
+              );
+            })}
+            {allFields.filter((f) => !FIELD_GROUPS.some((g) => g.fields.includes(f))).length > 0 && (
+              <div>
+                <p className="font-semibold text-sm mb-1">Campos personalizados</p>
+                {allFields
+                  .filter((f) => !FIELD_GROUPS.some((g) => g.fields.includes(f)))
+                  .map((f) => (
+                    <label key={f} className="block pl-2">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={fields.includes(f)}
+                        onChange={(e) =>
+                          setFields(
+                            e.target.checked
+                              ? [...fields, f]
+                              : fields.filter((x) => x !== f)
+                          )
+                        }
+                      />
+                      {getFieldLabel(f)}
+                    </label>
+                  ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
