@@ -70,3 +70,12 @@ create table public.employee_views (
   filters jsonb,
   created_at timestamptz default now()
 );
+
+create table public.subscriptions (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  plan text not null,
+  efibank_id text,
+  status text default 'pending',
+  created_at timestamptz default now()
+);

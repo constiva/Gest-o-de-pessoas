@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { UserPlus } from 'lucide-react';
+import { PLAN_LIMITS } from '../lib/utils';
 
 interface SignUpForm {
   companyName: string;
@@ -43,12 +44,10 @@ export default function Register() {
       return;
     }
     const userId = authData.user.id;
-    const plans = {
-      basic: 5,
-      pro: 50,
-      enterprise: 500
-    } as const;
-    const maxEmployees = plans[form.plan as keyof typeof plans];
+    const maxEmployees =
+      form.plan === 'basic'
+        ? PLAN_LIMITS.basic
+        : 0;
     const { data: company, error: companyError } = await supabase
       .from('companies')
       .insert({

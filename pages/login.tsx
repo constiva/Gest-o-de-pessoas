@@ -13,12 +13,30 @@ export default function Login() {
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
     if (error) {
       alert(error.message);
       return;
     }
-    router.push('/dashboard');
+    const userId = data.user?.id;
+    const { data: profile } = await supabase
+      .from('users')
+      .select('company_id')
+      .eq('id', userId)
+      .single();
+    const { data: company } = await supabase
+      .from('companies')
+      .select('maxemployees')
+      .eq('id', profile?.company_id)
+      .single();
+    if (company?.maxemployees === 0) {
+      router.push(`/pending?companyId=${profile?.company_id}`);
+    } else {
+      router.push('/dashboard');
+    }
   };
 
   return (

@@ -15,7 +15,7 @@ Projeto inicial de SaaS usando Next.js e TypeScript com autenticação via Supab
 O projeto utiliza o SDK oficial [`gn-api-sdk-node`](https://github.com/efipay/sdk-node) para criar planos e assinaturas. Durante o registro a empresa escolhe entre os planos **Básico**, **Pro** ou **Enterprise**:
 
 - **Básico**: cadastro segue direto para o dashboard.
-- **Pro** ou **Enterprise**: após salvar o usuário e a empresa, o fluxo redireciona para `/checkout` onde o cliente informa os dados do cartão. O backend em `/api/efibank/subscribe` usa o SDK para criar o plano e a assinatura.
+- **Pro** ou **Enterprise**: após salvar o usuário e a empresa (com `maxemployees` = 0), o fluxo redireciona para `/checkout` onde o cliente informa os dados do cartão. A resposta grava uma linha em `subscriptions` com status `pending` e então o usuário é enviado para `/pending` até que o webhook confirme o pagamento. Quando `POST /api/efibank/webhook` recebe `status=paid`, o registro é marcado como `active` e o limite correspondente é aplicado em `companies.maxemployees` antes de redirecionar ao dashboard.
 
 Exemplo de requisição direta à API:
 
@@ -25,13 +25,7 @@ curl -X POST http://localhost:3000/api/efibank/subscribe \\
   -d '{"plan":"pro","customer":{"name":"Teste","email":"t@e.com"},"card":{"number":"0000","holder":"TESTE","expMonth":"01","expYear":"2030","cvv":"123"}}'
 ```
 
-Um webhook de exemplo está disponível em `POST /api/efibank/webhook` e apenas registra o payload recebido:
-
-```bash
-curl -X POST http://localhost:3000/api/efibank/webhook \\
-  -H "Content-Type: application/json" \\
-  -d '{"event":"sample"}'
-```
+O endpoint `POST /api/efibank/webhook` recebe notificações do Efibank, atualiza o status da assinatura e libera o limite de funcionários conforme o plano contratado.
 
 ## Esquema no Supabase
 
@@ -110,9 +104,18 @@ create table public.employee_views (
   filters jsonb,
   created_at timestamptz default now()
 );
+
+create table public.subscriptions (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  plan text not null,
+  efibank_id text,
+  status text default 'pending',
+  created_at timestamptz default now()
+);
 ```
 
-Após registrar um usuário, ele será redirecionado para `/dashboard`.
+Após registrar um usuário, ele será redirecionado para `/dashboard` no plano **Básico**. Para planos pagos o fluxo vai para `/checkout` e depois para `/pending` até que o pagamento seja confirmado.
 
 A página `/dashboard` exibe métricas simples de funcionários. A gestão de funcionários (CRUD, filtros e contadores) está em `/employees`.
 Nesta página é possível escolher quais colunas aparecem, filtrar múltiplos campos e usar o botão de reticências para visualizar, editar ou alterar o status do colaborador (com opção de ativar novamente). Tanto a lista filtrada quanto a ficha individual possuem um botão de impressão que respeita os campos selecionados.

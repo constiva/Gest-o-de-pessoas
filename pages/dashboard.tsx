@@ -14,17 +14,31 @@ export default function Dashboard() {
 
   useEffect(() => {
     const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
+      const { data: session } = await supabase.auth.getSession();
+      if (!session.session) {
         router.replace('/login');
-      } else {
-        const { data: employees } = await supabase.from('employees').select('status');
-        const active = employees?.filter((e) => e.status === 'active').length || 0;
-        const inactive = employees?.filter((e) => e.status === 'inactive').length || 0;
-        const dismissed = employees?.filter((e) => e.status === 'dismissed').length || 0;
-        setStats({ active, inactive, dismissed });
-        setLoading(false);
+        return;
       }
+      const { data: userProfile } = await supabase
+        .from('users')
+        .select('company_id')
+        .eq('id', session.session.user.id)
+        .single();
+      const { data: company } = await supabase
+        .from('companies')
+        .select('maxemployees')
+        .eq('id', userProfile?.company_id)
+        .single();
+      if (company?.maxemployees === 0) {
+        router.replace(`/pending?companyId=${userProfile?.company_id}`);
+        return;
+      }
+      const { data: employees } = await supabase.from('employees').select('status');
+      const active = employees?.filter((e) => e.status === 'active').length || 0;
+      const inactive = employees?.filter((e) => e.status === 'inactive').length || 0;
+      const dismissed = employees?.filter((e) => e.status === 'dismissed').length || 0;
+      setStats({ active, inactive, dismissed });
+      setLoading(false);
     };
     checkSession();
   }, [router]);

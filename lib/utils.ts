@@ -5,6 +5,12 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(...inputs));
 }
 
+export const PLAN_LIMITS = {
+  basic: 5,
+  pro: 50,
+  enterprise: 500,
+} as const;
+
 export const FIELD_LABELS: Record<string, string> = {
   name: 'Nome',
   email: 'E-mail',

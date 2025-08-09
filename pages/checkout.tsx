@@ -3,10 +3,11 @@ import { useRouter } from 'next/router';
 import { Button } from '../components/ui/button';
 import { Card } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { supabase } from '../lib/supabaseClient';
 
 export default function Checkout() {
   const router = useRouter();
-  const { plan, name, email } = router.query;
+  const { plan, name, email, companyId } = router.query as Record<string, string>;
   const [card, setCard] = useState({
     number: '',
     holder: '',
@@ -25,7 +26,7 @@ export default function Checkout() {
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
-    await fetch('/api/efibank/subscribe', {
+    const res = await fetch('/api/efibank/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -34,7 +35,13 @@ export default function Checkout() {
         card
       })
     });
-    router.push('/dashboard');
+    const sub = await res.json();
+    await supabase.from('subscriptions').insert({
+      company_id: companyId,
+      plan,
+      efibank_id: sub.subscription_id,
+    });
+    router.push(`/pending?companyId=${companyId}`);
   };
 
   return (
