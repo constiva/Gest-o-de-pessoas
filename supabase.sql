@@ -1,18 +1,3 @@
-# Gestão de Pessoas
-
-Projeto inicial de SaaS usando Next.js e TypeScript com autenticação via Supabase.
-
-## Como começar
-
-1. Copie `.env.example` para `.env.local` e preencha as variáveis `NEXT_PUBLIC_SUPABASE_URL` e `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
-2. Instale as dependências com `npm install`.
-3. Execute o servidor de desenvolvimento com `npm run dev`.
-
-## Esquema no Supabase
-
-Execute as queries abaixo no Supabase para criar as tabelas necessárias:
-
-```sql
 create table public.companies (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
@@ -56,8 +41,3 @@ create table public.employees (
   custom_fields jsonb,
   created_at timestamptz default now()
 );
-```
-
-Após registrar um usuário, ele será redirecionado para `/dashboard`.
-
-A página `/dashboard` exibe métricas simples de funcionários. A gestão de funcionários (CRUD, filtros e contadores) está em `/employees`.
