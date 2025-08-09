@@ -5,9 +5,8 @@ import { supabase } from '../../lib/supabaseClient';
 import EmployeeStats from '../../components/EmployeeStats';
 import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
-import CustomFieldSidebar from '../../components/CustomFieldSidebar';
-import DepartmentSidebar from '../../components/DepartmentSidebar';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
+import EmployeeConfigModal from '../../components/EmployeeConfigModal';
 
 interface Employee {
   id: string;
@@ -36,9 +35,7 @@ export default function Employees() {
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [openActions, setOpenActions] = useState<string | null>(null);
   const [showColumns, setShowColumns] = useState(false);
-  const [fieldOpen, setFieldOpen] = useState(false);
-  const [deptOpen, setDeptOpen] = useState(false);
-  const [showConfig, setShowConfig] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
   const [viewId, setViewId] = useState<string | null>(null);
   const router = useRouter();
 
@@ -292,36 +289,12 @@ export default function Employees() {
         <Link href="/employees/new" className="text-brand hover:underline">
           + Adicionar Funcionário
         </Link>
-        <div className="relative">
-          <button
-            onClick={() => setShowConfig(!showConfig)}
-            className="text-brand hover:underline"
-          >
-            Configurações
-          </button>
-          {showConfig && (
-            <div className="absolute right-0 mt-2 bg-white border p-2 space-y-1 z-20">
-              <button
-                className="block text-left w-full hover:underline"
-                onClick={() => {
-                  setFieldOpen(true);
-                  setShowConfig(false);
-                }}
-              >
-                Campos personalizados
-              </button>
-              <button
-                className="block text-left w-full hover:underline"
-                onClick={() => {
-                  setDeptOpen(true);
-                  setShowConfig(false);
-                }}
-              >
-                Departamentos
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          onClick={() => setConfigOpen(true)}
+          className="text-brand hover:underline"
+        >
+          Configurações
+        </button>
         <Button variant="outline" onClick={printList}>
           Imprimir
         </Button>
@@ -434,17 +407,10 @@ export default function Employees() {
           ))}
         </tbody>
       </table>
-      <CustomFieldSidebar
-        open={fieldOpen}
+      <EmployeeConfigModal
+        open={configOpen}
         onClose={() => {
-          setFieldOpen(false);
-          load();
-        }}
-      />
-      <DepartmentSidebar
-        open={deptOpen}
-        onClose={() => {
-          setDeptOpen(false);
+          setConfigOpen(false);
           load();
         }}
       />
