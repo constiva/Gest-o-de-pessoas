@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
 import { getFieldLabel } from '../lib/utils';
+import { Columns, Printer, X } from 'lucide-react';
 
 interface Props {
   id: string;
@@ -142,11 +143,18 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
       <div className="bg-white rounded p-4 w-full max-w-lg max-h-[80vh] overflow-y-auto">
         <div className="flex justify-between items-center mb-4">
           <h2 className="text-xl font-bold">Ficha do Funcionário</h2>
-          <button onClick={onClose}>X</button>
+          <button onClick={onClose} className="p-1 rounded hover:bg-gray-100">
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="relative mb-4 view-fields-menu">
-          <Button variant="outline" size="sm" onClick={() => setShowFields(!showFields)}>
-            Campos
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowFields(!showFields)}
+            className="flex items-center gap-1"
+          >
+            <Columns className="h-4 w-4" /> Campos
           </Button>
           {showFields && (
             <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
@@ -170,8 +178,13 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             </div>
           )}
         </div>
-        <Button variant="outline" size="sm" className="mb-4" onClick={printDetail}>
-          Imprimir
+        <Button
+          variant="outline"
+          size="sm"
+          className="mb-4 flex items-center gap-1"
+          onClick={printDetail}
+        >
+          <Printer className="h-4 w-4" /> Imprimir
         </Button>
         {groups.map((group) => {
           const groupRows = group.fields
