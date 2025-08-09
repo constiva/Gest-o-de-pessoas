@@ -147,45 +147,47 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="relative mb-4 view-fields-menu">
+        <div className="flex items-start gap-2 mb-4">
+          <div className="relative view-fields-menu">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowFields(!showFields)}
+              className="flex items-center gap-1"
+            >
+              <Columns className="h-4 w-4" /> Campos
+            </Button>
+            {showFields && (
+              <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
+                {allFields.map((f) => (
+                  <label key={f} className="block">
+                    <input
+                      type="checkbox"
+                      className="mr-2"
+                      checked={fields.includes(f)}
+                      onChange={(e) =>
+                        setFields(
+                          e.target.checked
+                            ? [...fields, f]
+                            : fields.filter((x) => x !== f)
+                        )
+                      }
+                    />
+                    {getFieldLabel(f)}
+                  </label>
+                ))}
+              </div>
+            )}
+          </div>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setShowFields(!showFields)}
             className="flex items-center gap-1"
+            onClick={printDetail}
           >
-            <Columns className="h-4 w-4" /> Campos
+            <Printer className="h-4 w-4" /> Imprimir
           </Button>
-          {showFields && (
-            <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-60">
-              {allFields.map((f) => (
-                <label key={f} className="block">
-                  <input
-                    type="checkbox"
-                    className="mr-2"
-                    checked={fields.includes(f)}
-                    onChange={(e) =>
-                      setFields(
-                        e.target.checked
-                          ? [...fields, f]
-                          : fields.filter((x) => x !== f)
-                      )
-                    }
-                  />
-                  {getFieldLabel(f)}
-                </label>
-              ))}
-            </div>
-          )}
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="mb-4 flex items-center gap-1"
-          onClick={printDetail}
-        >
-          <Printer className="h-4 w-4" /> Imprimir
-        </Button>
         {groups.map((group) => {
           const groupRows = group.fields
             .filter((f) =>

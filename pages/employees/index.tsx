@@ -20,6 +20,7 @@ import {
   UserMinus,
   UserX,
   UserCheck,
+  Trash,
 } from 'lucide-react';
 
 const defaultViewCols = ['name','email','phone','cpf','position','department'];
@@ -68,6 +69,7 @@ export default function Employees() {
     new Date().toISOString().slice(0, 10)
   );
   const [dismissReason, setDismissReason] = useState('');
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState(false);
   const router = useRouter();
   const activeEmp = openActions
@@ -313,6 +315,15 @@ export default function Employees() {
     setDismissReason('');
   };
 
+  const confirmDelete = async () => {
+    if (!deleteId) return;
+    await supabase.from('employees').delete().eq('id', deleteId);
+    const remaining = employees.filter((emp) => emp.id !== deleteId);
+    setEmployees(remaining);
+    refreshCounts(remaining);
+    setDeleteId(null);
+  };
+
   const filtered = employees.filter((emp) =>
     filters.every((f) => {
       const fieldValue = f.custom
@@ -515,23 +526,58 @@ export default function Employees() {
             </Button>
             {showColumns && (
               <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto w-72">
-                {allColumns.map((c) => (
-                  <label key={c} className="block">
-                    <input
-                      type="checkbox"
-                      className="mr-2"
-                      checked={columns.includes(c)}
-                      onChange={(e) =>
-                        setColumns(
-                          e.target.checked
-                            ? [...columns, c]
-                            : columns.filter((col) => col !== c)
-                        )
-                      }
-                    />
-                    {getFieldLabel(c)}
-                  </label>
-                ))}
+                {groups.map((g) => {
+                  const cols = g.fields.filter((f) => allColumns.includes(f));
+                  if (!cols.length) return null;
+                  return (
+                    <div key={g.title} className="mb-2">
+                      <p className="font-semibold text-sm mb-1">{g.title}</p>
+                      {cols.map((c) => (
+                        <label key={c} className="block pl-2">
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={columns.includes(c)}
+                            onChange={(e) =>
+                              setColumns(
+                                e.target.checked
+                                  ? [...columns, c]
+                                  : columns.filter((col) => col !== c)
+                              )
+                            }
+                          />
+                          {getFieldLabel(c)}
+                        </label>
+                      ))}
+                    </div>
+                  );
+                })}
+                {allColumns.filter(
+                  (c) => !groups.some((g) => g.fields.includes(c))
+                ).length > 0 && (
+                  <div>
+                    <p className="font-semibold text-sm mb-1">Campos personalizados</p>
+                    {allColumns
+                      .filter((c) => !groups.some((g) => g.fields.includes(c)))
+                      .map((c) => (
+                        <label key={c} className="block pl-2">
+                          <input
+                            type="checkbox"
+                            className="mr-2"
+                            checked={columns.includes(c)}
+                            onChange={(e) =>
+                              setColumns(
+                                e.target.checked
+                                  ? [...columns, c]
+                                  : columns.filter((col) => col !== c)
+                              )
+                            }
+                          />
+                          {getFieldLabel(c)}
+                        </label>
+                      ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -821,6 +867,14 @@ export default function Employees() {
               </button>
             </div>
           )}
+          <div>
+            <button
+              className="text-left text-sm text-red-600 hover:underline flex items-center gap-1"
+              onClick={() => setDeleteId(activeEmp.id)}
+            >
+              <Trash className="h-4 w-4" /> Excluir
+            </button>
+          </div>
         </div>
       )}
       <EmployeeConfigModal
@@ -865,6 +919,20 @@ export default function Employees() {
               >
                 Confirmar
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+      {deleteId && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded p-4 w-full max-w-sm">
+            <h2 className="text-lg font-bold mb-4">Excluir Funcionário</h2>
+            <p className="mb-4">Tem certeza que deseja excluir este registro?</p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setDeleteId(null)}>
+                Cancelar
+              </Button>
+              <Button onClick={confirmDelete}>Confirmar</Button>
             </div>
           </div>
         </div>

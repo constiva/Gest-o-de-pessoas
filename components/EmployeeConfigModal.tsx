@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { X } from 'lucide-react';
 
 interface Props {
   open: boolean;
@@ -109,6 +110,12 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
     <div className="fixed inset-0 flex items-center justify-center z-50">
       <div className="absolute inset-0 bg-black/50" onClick={onClose} />
       <div className="relative bg-white w-[700px] h-[500px] flex shadow-xl">
+        <button
+          onClick={onClose}
+          className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+        >
+          <X className="h-4 w-4" />
+        </button>
         <aside className="w-48 border-r p-4 space-y-2">
           <button
             className={`block w-full text-left p-2 rounded ${tab === 'departments' ? 'bg-purple-100 font-semibold' : ''}`}
