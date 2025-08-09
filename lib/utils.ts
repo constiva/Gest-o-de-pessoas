@@ -25,7 +25,7 @@ export const FIELD_LABELS: Record<string, string> = {
   emergency_contact_name: 'Contato de emergência (nome)',
   emergency_contact_phone: 'Contato de emergência (telefone)',
   emergency_contact_relation: 'Contato de emergência (relação)',
-  resume_url: 'URL do currículo',
+  resume_url: 'Currículo',
   comments: 'Comentários',
 };
 

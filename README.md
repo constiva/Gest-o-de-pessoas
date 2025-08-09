@@ -72,6 +72,12 @@ create table public.departments (
   name text not null
 );
 
+create table public.positions (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  name text not null
+);
+
 create table public.employee_views (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references public.users(id) on delete cascade,
@@ -89,4 +95,4 @@ Nesta página é possível escolher quais colunas aparecem, filtrar múltiplos c
 
 Cada usuário pode salvar colunas visíveis e filtros em múltiplas listas personalizadas. Essas configurações ficam armazenadas na tabela `employee_views`, são recarregadas automaticamente nas próximas sessões e podem ser excluídas (com exceção da lista principal).
 
-As configurações de Departamentos e Campos personalizados podem ser acessadas por um modal com menu lateral para CRUD completo.
+As configurações de Departamentos, Cargos e Campos personalizados podem ser acessadas por um modal com menu lateral para CRUD completo.

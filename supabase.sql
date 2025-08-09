@@ -56,6 +56,12 @@ create table public.departments (
   name text not null
 );
 
+create table public.positions (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  name text not null
+);
+
 create table public.employee_views (
   id uuid primary key default uuid_generate_v4(),
   user_id uuid references public.users(id) on delete cascade,

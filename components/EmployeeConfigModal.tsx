@@ -20,11 +20,18 @@ interface CustomField {
   value: string;
 }
 
+interface Position {
+  id: string;
+  name: string;
+}
+
 export default function EmployeeConfigModal({ open, onClose }: Props) {
-  const [tab, setTab] = useState<'departments' | 'custom'>('departments');
+  const [tab, setTab] = useState<'departments' | 'positions' | 'custom'>('departments');
   const [companyId, setCompanyId] = useState('');
   const [departments, setDepartments] = useState<Department[]>([]);
   const [deptName, setDeptName] = useState('');
+  const [positions, setPositions] = useState<Position[]>([]);
+  const [posName, setPosName] = useState('');
   const [fields, setFields] = useState<CustomField[]>([]);
   const [fieldName, setFieldName] = useState('');
   const [fieldValue, setFieldValue] = useState('');
@@ -46,6 +53,11 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
         .select('*')
         .eq('company_id', compId);
       setDepartments(deps || []);
+      const { data: pos } = await supabase
+        .from('positions')
+        .select('*')
+        .eq('company_id', compId);
+      setPositions(pos || []);
       const { data: cfs } = await supabase
         .from('custom_fields')
         .select('*')
@@ -77,6 +89,30 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
   const removeDepartment = async (id: string) => {
     await supabase.from('departments').delete().eq('id', id);
     setDepartments(departments.filter((d) => d.id !== id));
+  };
+
+  const addPosition = async () => {
+    const { data, error } = await supabase
+      .from('positions')
+      .insert({ company_id: companyId, name: posName })
+      .select()
+      .single();
+    if (!error && data) {
+      setPositions([...positions, data]);
+      setPosName('');
+    }
+  };
+
+  const savePosition = async (pos: Position) => {
+    await supabase
+      .from('positions')
+      .update({ name: pos.name })
+      .eq('id', pos.id);
+  };
+
+  const removePosition = async (id: string) => {
+    await supabase.from('positions').delete().eq('id', id);
+    setPositions(positions.filter((p) => p.id !== id));
   };
 
   const addField = async () => {
@@ -124,6 +160,12 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
             Departamentos
           </button>
           <button
+            className={`block w-full text-left p-2 rounded ${tab === 'positions' ? 'bg-purple-100 font-semibold' : ''}`}
+            onClick={() => setTab('positions')}
+          >
+            Cargos
+          </button>
+          <button
             className={`block w-full text-left p-2 rounded ${tab === 'custom' ? 'bg-purple-100 font-semibold' : ''}`}
             onClick={() => setTab('custom')}
           >
@@ -131,7 +173,7 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
           </button>
         </aside>
         <div className="flex-1 p-4 overflow-y-auto">
-          {tab === 'departments' ? (
+          {tab === 'departments' && (
             <div>
               <h2 className="text-lg font-semibold mb-4">Departamentos</h2>
               <div className="flex space-x-2 mb-4">
@@ -157,7 +199,35 @@ export default function EmployeeConfigModal({ open, onClose }: Props) {
                 </div>
               ))}
             </div>
-          ) : (
+          )}
+          {tab === 'positions' && (
+            <div>
+              <h2 className="text-lg font-semibold mb-4">Cargos</h2>
+              <div className="flex space-x-2 mb-4">
+                <Input
+                  placeholder="Cargo"
+                  value={posName}
+                  onChange={(e) => setPosName(e.target.value)}
+                />
+                <Button onClick={addPosition} disabled={!posName} variant="outline">
+                  Adicionar
+                </Button>
+              </div>
+              {positions.map((pos) => (
+                <div key={pos.id} className="flex space-x-2 mb-2">
+                  <Input
+                    value={pos.name}
+                    onChange={(e) => (pos.name = e.target.value)}
+                    onBlur={() => savePosition(pos)}
+                  />
+                  <button className="text-red-500" onClick={() => removePosition(pos.id)}>
+                    x
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {tab === 'custom' && (
             <div>
               <h2 className="text-lg font-semibold mb-4">Campos personalizados</h2>
               <div className="flex space-x-2 mb-4">

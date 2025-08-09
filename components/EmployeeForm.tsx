@@ -7,6 +7,7 @@ import { Button } from './ui/button';
 import { Settings } from 'lucide-react';
 import CustomFieldSidebar from './CustomFieldSidebar';
 import DepartmentSidebar from './DepartmentSidebar';
+import PositionSidebar from './PositionSidebar';
 
 interface Employee {
   id?: string;
@@ -63,12 +64,84 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   const [company, setCompany] = useState<any>(null);
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [departments, setDepartments] = useState<string[]>([]);
+  const [positions, setPositions] = useState<string[]>([]);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
+  const [posOpen, setPosOpen] = useState(false);
 
   useEffect(() => {
-    setForm(employee ? { ...employee, custom_fields: employee.custom_fields || {} } : defaultEmployee);
+    if (employee) {
+      setForm({
+        ...employee,
+        phone: formatPhone(employee.phone || ''),
+        cpf: formatCpfCnpj(employee.cpf || ''),
+        zip: formatCep(employee.zip || ''),
+        salary: employee.salary ? formatCurrency(Number(employee.salary)) : '',
+        emergency_contact_phone: formatPhone(
+          employee.emergency_contact_phone || ''
+        ),
+        custom_fields: employee.custom_fields || {},
+      });
+    } else {
+      setForm(defaultEmployee);
+    }
   }, [employee]);
+
+  const formatCpfCnpj = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length <= 11) {
+      return digits
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d)/, '$1.$2')
+        .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    }
+    return digits
+      .replace(/(\d{2})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1/$2')
+      .replace(/(\d{4})(\d{1,2})$/, '$1-$2');
+  };
+
+  const formatPhone = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    if (digits.length > 10) {
+      return digits.replace(/(\d{2})(\d{5})(\d{4}).*/, '($1) $2-$3');
+    }
+    return digits.replace(/(\d{2})(\d{4})(\d{4}).*/, '($1) $2-$3');
+  };
+
+  const formatCep = (value: string) => {
+    const digits = value.replace(/\D/g, '');
+    return digits.replace(/(\d{5})(\d)/, '$1-$2').substring(0, 9);
+  };
+
+  const formatCurrency = (value: number | string) => {
+    const number =
+      typeof value === 'number'
+        ? value
+        : Number(
+            value
+              .replace(/\./g, '')
+              .replace(',', '.')
+              .replace(/[^0-9.]/g, '')
+          );
+    if (isNaN(number)) return '';
+    return number.toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+      minimumFractionDigits: 2,
+    });
+  };
+
+  const parseCurrency = (value: string) => {
+    if (!value) return null;
+    return Number(
+      value
+        .replace(/\./g, '')
+        .replace(',', '.')
+        .replace(/[^0-9.]/g, '')
+    );
+  };
   const loadOptions = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) {
@@ -100,6 +173,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
       .select('name')
       .eq('company_id', user.company_id);
     setDepartments(deps?.map((d: any) => d.name) || []);
+    const { data: poss } = await supabase
+      .from('positions')
+      .select('name')
+      .eq('company_id', user.company_id);
+    setPositions(poss?.map((p: any) => p.name) || []);
   };
 
   useEffect(() => {
@@ -134,7 +212,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
       alert('Limite de funcionários atingido.');
       return;
     }
-    const payload = { ...form, company_id: company.id };
+    const payload = {
+      ...form,
+      salary: parseCurrency(form.salary) || null,
+      company_id: company.id,
+    };
     if (isEdit && employee) {
       await supabase.from('employees').update(payload).eq('id', employee.id);
     } else {
@@ -179,9 +261,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             <Input
               id="phone"
               name="phone"
-              placeholder="Ex: 11 99999-9999"
+              placeholder="Ex: (11) 99999-9999"
               value={form.phone}
-              onChange={handleChange}
+              onChange={(e) =>
+                setForm({ ...form, phone: formatPhone(e.target.value) })
+              }
             />
           </div>
           <div className="flex flex-col">
@@ -191,18 +275,25 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               name="cpf"
               placeholder="Ex: 123.456.789-00"
               value={form.cpf}
-              onChange={handleChange}
+              onChange={(e) =>
+                setForm({ ...form, cpf: formatCpfCnpj(e.target.value) })
+              }
             />
           </div>
           <div className="flex flex-col">
             <label htmlFor="gender">Gênero</label>
-            <Input
+            <select
               id="gender"
               name="gender"
-              placeholder="Ex: Feminino"
               value={form.gender}
               onChange={handleChange}
-            />
+              className="border p-2 rounded"
+            >
+              <option value="">Selecione</option>
+              <option value="masculino">Masculino</option>
+              <option value="feminino">Feminino</option>
+              <option value="outros">Outros</option>
+            </select>
           </div>
         </div>
       </Card>
@@ -247,7 +338,9 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               name="zip"
               placeholder="Ex: 01234-567"
               value={form.zip}
-              onChange={handleChange}
+              onChange={(e) =>
+                setForm({ ...form, zip: formatCep(e.target.value) })
+              }
             />
           </div>
         </div>
@@ -258,13 +351,30 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
         <div className="grid gap-2 sm:grid-cols-2">
           <div className="flex flex-col">
             <label htmlFor="position">Cargo</label>
-            <Input
-              id="position"
-              name="position"
-              placeholder="Ex: Analista de RH"
-              value={form.position}
-              onChange={handleChange}
-            />
+            <div className="flex items-center gap-2">
+              <select
+                id="position"
+                name="position"
+                value={form.position}
+                onChange={handleChange}
+                className="border p-2 rounded flex-1"
+              >
+                <option value="">Selecione</option>
+                {positions.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPosOpen(true)}
+              >
+                <Settings className="h-4 w-4" />
+              </Button>
+            </div>
           </div>
           <div className="flex flex-col">
             <label htmlFor="department">Departamento</label>
@@ -298,9 +408,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             <Input
               id="salary"
               name="salary"
-              placeholder="Ex: 3500"
+              placeholder="Ex: R$ 3.500,00"
               value={form.salary}
-              onChange={handleChange}
+              onChange={(e) =>
+                setForm({ ...form, salary: formatCurrency(e.target.value) })
+              }
             />
           </div>
           <div className="flex flex-col">
@@ -348,20 +460,33 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
             <Input
               id="emergency_contact_phone"
               name="emergency_contact_phone"
-              placeholder="Ex: 11 98888-7777"
+              placeholder="Ex: (11) 98888-7777"
               value={form.emergency_contact_phone}
-              onChange={handleChange}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  emergency_contact_phone: formatPhone(e.target.value),
+                })
+              }
             />
           </div>
           <div className="flex flex-col">
             <label htmlFor="emergency_contact_relation">Relação</label>
-            <Input
+            <select
               id="emergency_contact_relation"
               name="emergency_contact_relation"
-              placeholder="Ex: Mãe"
               value={form.emergency_contact_relation}
               onChange={handleChange}
-            />
+              className="border p-2 rounded"
+            >
+              <option value="">Selecione</option>
+              <option value="pai">Pai</option>
+              <option value="mae">Mãe</option>
+              <option value="conjuge">Cônjuge</option>
+              <option value="irmao">Irmão</option>
+              <option value="amigo">Amigo</option>
+              <option value="outros">Outros</option>
+            </select>
           </div>
         </div>
       </Card>
@@ -370,14 +495,35 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
         <h2 className="font-semibold mb-4">Outros</h2>
         <div className="grid gap-2">
           <div className="flex flex-col">
-            <label htmlFor="resume_url">URL do currículo</label>
-            <Input
-              id="resume_url"
-              name="resume_url"
-              placeholder="https://exemplo.com/curriculo.pdf"
-              value={form.resume_url}
-              onChange={handleChange}
+            <label htmlFor="resume">Currículo</label>
+            <input
+              id="resume"
+              type="file"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file || !company) return;
+                const filePath = `${Date.now()}-${file.name}`;
+                const { error } = await supabase.storage
+                  .from('resumes')
+                  .upload(filePath, file);
+                if (!error) {
+                  const { data } = supabase.storage
+                    .from('resumes')
+                    .getPublicUrl(filePath);
+                  setForm({ ...form, resume_url: data.publicUrl });
+                }
+              }}
             />
+            {form.resume_url && (
+              <a
+                href={form.resume_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-blue-600 underline mt-1"
+              >
+                Baixar currículo
+              </a>
+            )}
           </div>
           <div className="flex flex-col">
             <label htmlFor="comments">Comentários</label>
@@ -442,6 +588,13 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
         open={deptOpen}
         onClose={() => {
           setDeptOpen(false);
+          loadOptions();
+        }}
+      />
+      <PositionSidebar
+        open={posOpen}
+        onClose={() => {
+          setPosOpen(false);
           loadOptions();
         }}
       />
