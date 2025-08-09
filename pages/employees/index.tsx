@@ -29,6 +29,7 @@ export default function Employees() {
   const [customFieldName, setCustomFieldName] = useState('');
   const [customFieldValue, setCustomFieldValue] = useState('');
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
+  const [openActions, setOpenActions] = useState<string | null>(null);
   const router = useRouter();
 
   const refreshCounts = (data: Employee[]) => {
@@ -113,6 +114,7 @@ export default function Employees() {
     );
     setEmployees(newEmployees);
     refreshCounts(newEmployees);
+    setOpenActions(null);
   };
 
   const filtered = employees.filter((emp) =>
@@ -120,6 +122,27 @@ export default function Employees() {
       f.custom ? emp.custom_fields?.[f.field] === f.value : emp[f.field] === f.value
     )
   );
+
+  const printList = () => {
+    const html = `<!DOCTYPE html><html><head><title>Funcionários</title></head><body>` +
+      `<table border="1" cellPadding="4"><thead><tr>` +
+      columns.map((c) => `<th>${c}</th>`).join('') +
+      `</tr></thead><tbody>` +
+      filtered
+        .map(
+          (emp) =>
+            `<tr>` +
+            columns.map((c) => `<td>${emp[c] ?? ''}</td>`).join('') +
+            `</tr>`
+        )
+        .join('') +
+      `</tbody></table></body></html>`;
+    const w = window.open('', '', 'height=600,width=800');
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.print();
+  };
 
   return (
     <div>
@@ -221,7 +244,8 @@ export default function Employees() {
       </div>
       <div>
         <Link href="/employees/new">+ Adicionar Funcionário</Link>{' '}
-        <Link href="/employees/config">Configurações</Link>
+        <Link href="/employees/config">Configurações</Link>{' '}
+        <button onClick={printList}>Imprimir</button>
       </div>
       <table border="1" cellPadding="4">
         <thead>
@@ -238,11 +262,80 @@ export default function Employees() {
               {columns.map((c) => (
                 <td key={c}>{emp[c]}</td>
               ))}
-              <td>
-                <button onClick={() => router.push(`/employees/view/${emp.id}`)}>Visualizar</button>{' '}
-                <button onClick={() => router.push(`/employees/${emp.id}`)}>Editar</button>{' '}
-                <button onClick={() => updateStatus(emp.id, 'inactive')}>Inativar</button>{' '}
-                <button onClick={() => updateStatus(emp.id, 'dismissed')}>Desligar</button>
+              <td style={{ position: 'relative' }}>
+                <button
+                  onClick={() =>
+                    setOpenActions(openActions === emp.id ? null : emp.id)
+                  }
+                >
+                  ...
+                </button>
+                {openActions === emp.id && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      background: '#fff',
+                      border: '1px solid #ccc',
+                      padding: 4,
+                      zIndex: 1,
+                    }}
+                  >
+                    <div>
+                      <button
+                        onClick={() => {
+                          setOpenActions(null);
+                          router.push(`/employees/view/${emp.id}`);
+                        }}
+                      >
+                        Visualizar
+                      </button>
+                    </div>
+                    <div>
+                      <button
+                        onClick={() => {
+                          setOpenActions(null);
+                          router.push(`/employees/${emp.id}`);
+                        }}
+                      >
+                        Editar
+                      </button>
+                    </div>
+                    {emp.status === 'active' ? (
+                      <>
+                        <div>
+                          <button onClick={() => updateStatus(emp.id, 'inactive')}>
+                            Inativar
+                          </button>
+                        </div>
+                        <div>
+                          <button onClick={() => updateStatus(emp.id, 'dismissed')}>
+                            Desligar
+                          </button>
+                        </div>
+                      </>
+                    ) : emp.status === 'inactive' ? (
+                      <>
+                        <div>
+                          <button onClick={() => updateStatus(emp.id, 'active')}>
+                            Ativar
+                          </button>
+                        </div>
+                        <div>
+                          <button onClick={() => updateStatus(emp.id, 'dismissed')}>
+                            Desligar
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div>
+                        <button onClick={() => updateStatus(emp.id, 'active')}>
+                          Ativar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
               </td>
             </tr>
           ))}
