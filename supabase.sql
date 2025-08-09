@@ -41,3 +41,10 @@ create table public.employees (
   custom_fields jsonb,
   created_at timestamptz default now()
 );
+
+create table public.custom_fields (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  field text not null,
+  value text not null
+);
