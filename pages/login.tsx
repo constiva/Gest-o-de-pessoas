@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useRouter } from 'next/router';
 import { supabase } from '../lib/supabaseClient';
+import { Button } from '../components/ui/button';
 
 export default function Login() {
   const [email, setEmail] = useState('');
@@ -18,19 +19,22 @@ export default function Login() {
   };
 
   return (
-    <div>
-      <h1>Login</h1>
-      <form onSubmit={handleSubmit}>
-        <input name="email" placeholder="Email" onChange={(e) => setEmail(e.target.value)} />
+    <div className="min-h-screen flex items-center justify-center bg-purple-50">
+      <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow w-full max-w-sm space-y-2">
+        <h1 className="text-2xl font-bold text-center mb-4">Entrar</h1>
+        <input name="email" placeholder="Email" onChange={(e) => setEmail(e.target.value)} className="w-full border p-2 rounded" />
         <input
           name="password"
           type="password"
-          placeholder="Password"
+          placeholder="Senha"
           onChange={(e) => setPassword(e.target.value)}
+          className="w-full border p-2 rounded"
         />
-        <button type="submit">Login</button>
+        <Button type="submit" className="w-full">Login</Button>
+        <p className="text-center text-sm">
+          Não tem conta? <a href="/register" className="text-brand">Registre-se</a>
+        </p>
       </form>
-      <a href="/">Registre-se</a>
     </div>
   );
 }

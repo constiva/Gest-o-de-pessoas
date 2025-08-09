@@ -5,11 +5,22 @@ interface Props {
 }
 
 export default function EmployeeStats({ active, inactive, dismissed }: Props) {
+  const items = [
+    { label: 'Funcionários ativos', value: active },
+    { label: 'Funcionários inativos', value: inactive },
+    { label: 'Funcionários desligados', value: dismissed },
+  ];
   return (
-    <div className="flex space-x-4 mb-4">
-      <p className="text-sm">Funcionários ativos: {active}</p>
-      <p className="text-sm">Funcionários inativos: {inactive}</p>
-      <p className="text-sm">Funcionários desligados: {dismissed}</p>
+    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4 w-full max-w-2xl">
+      {items.map((item) => (
+        <div
+          key={item.label}
+          className="bg-white shadow rounded p-4 text-center"
+        >
+          <p className="text-sm text-gray-500">{item.label}</p>
+          <p className="text-xl font-bold">{item.value}</p>
+        </div>
+      ))}
     </div>
   );
 }

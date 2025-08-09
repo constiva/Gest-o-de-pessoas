@@ -5,6 +5,8 @@ import { supabase } from '../../lib/supabaseClient';
 import EmployeeStats from '../../components/EmployeeStats';
 import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
+import EmployeeConfigModal from '../../components/EmployeeConfigModal';
+import EmployeeViewModal from '../../components/EmployeeViewModal';
 
 interface Employee {
   id: string;
@@ -32,6 +34,9 @@ export default function Employees() {
   const [customFieldValue, setCustomFieldValue] = useState('');
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [openActions, setOpenActions] = useState<string | null>(null);
+  const [showColumns, setShowColumns] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [viewId, setViewId] = useState<string | null>(null);
   const router = useRouter();
 
   const refreshCounts = (data: Employee[]) => {
@@ -246,36 +251,49 @@ export default function Employees() {
             </span>
           ))}
       </div>
-      <div className="flex justify-between items-center mt-4">
+      <div className="flex justify-between items-center mt-4 relative">
         <h2 className="text-xl font-semibold">Lista dos funcionários</h2>
-        <details>
-          <summary className="cursor-pointer">Colunas</summary>
-          {allColumns.map((c) => (
-            <label key={c} className="block">
-              <input
-                type="checkbox"
-                className="mr-2"
-                checked={columns.includes(c)}
-                onChange={(e) =>
-                  setColumns(
-                    e.target.checked
-                      ? [...columns, c]
-                      : columns.filter((col) => col !== c)
-                  )
-                }
-              />
-              {c}
-            </label>
-          ))}
-        </details>
+        <div className="relative">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowColumns(!showColumns)}
+          >
+            Colunas
+          </Button>
+          {showColumns && (
+            <div className="absolute right-0 mt-2 bg-white border p-2 z-20 max-h-60 overflow-y-auto">
+              {allColumns.map((c) => (
+                <label key={c} className="block">
+                  <input
+                    type="checkbox"
+                    className="mr-2"
+                    checked={columns.includes(c)}
+                    onChange={(e) =>
+                      setColumns(
+                        e.target.checked
+                          ? [...columns, c]
+                          : columns.filter((col) => col !== c)
+                      )
+                    }
+                  />
+                  {c}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="my-4 space-x-4">
         <Link href="/employees/new" className="text-brand hover:underline">
           + Adicionar Funcionário
         </Link>
-        <Link href="/employees/config" className="text-brand hover:underline">
+        <button
+          onClick={() => setConfigOpen(true)}
+          className="text-brand hover:underline"
+        >
           Configurações
-        </Link>
+        </button>
         <Button variant="outline" onClick={printList}>
           Imprimir
         </Button>
@@ -316,7 +334,7 @@ export default function Employees() {
                         className="text-left text-sm text-brand hover:underline"
                         onClick={() => {
                           setOpenActions(null);
-                          router.push(`/employees/view/${emp.id}`);
+                          setViewId(emp.id);
                         }}
                       >
                         Visualizar
@@ -388,6 +406,13 @@ export default function Employees() {
           ))}
         </tbody>
       </table>
+      <EmployeeConfigModal
+        open={configOpen}
+        onClose={() => setConfigOpen(false)}
+      />
+      {viewId && (
+        <EmployeeViewModal id={viewId} onClose={() => setViewId(null)} />
+      )}
     </Layout>
   );
 }
