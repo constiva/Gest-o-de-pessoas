@@ -8,18 +8,22 @@ import { supabase } from '../lib/supabaseClient';
 export default function Checkout() {
   const router = useRouter();
   const { plan, name, email, companyId } = router.query as Record<string, string>;
-  const [card, setCard] = useState({
+  const [form, setForm] = useState({
+    cpf: '',
+    phone: '',
+    token: '',
+    street: '',
     number: '',
-    holder: '',
-    expMonth: '',
-    expYear: '',
-    cvv: ''
+    neighborhood: '',
+    zipcode: '',
+    city: '',
+    state: ''
   });
 
   const handleChange = (
     e: React.ChangeEvent<HTMLInputElement>
   ) => {
-    setCard({ ...card, [e.target.name]: e.target.value });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
   const handleSubmit = async (
@@ -30,9 +34,23 @@ export default function Checkout() {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        plan,
-        customer: { name, email },
-        card
+        plano: { descricao: plan, interval: 1 },
+        customer: {
+          name,
+          email,
+          cpf: form.cpf,
+          phone_number: form.phone
+        },
+        item: { name: 'Assinatura', amount: 1, value: 1000 },
+        payment_token: form.token,
+        billing_address: {
+          street: form.street,
+          number: form.number,
+          neighborhood: form.neighborhood,
+          zipcode: form.zipcode,
+          city: form.city,
+          state: form.state
+        }
       })
     });
     const sub = await res.json();
@@ -49,13 +67,15 @@ export default function Checkout() {
       <Card className="w-full max-w-md space-y-4">
         <h1 className="text-xl font-semibold text-center">Checkout do plano {plan}</h1>
         <form onSubmit={handleSubmit} className="space-y-3">
-          <Input name="number" placeholder="Número do cartão" onChange={handleChange} />
-          <Input name="holder" placeholder="Nome do titular" onChange={handleChange} />
-          <div className="flex gap-2">
-            <Input name="expMonth" placeholder="Mês" onChange={handleChange} />
-            <Input name="expYear" placeholder="Ano" onChange={handleChange} />
-            <Input name="cvv" placeholder="CVV" onChange={handleChange} />
-          </div>
+          <Input name="cpf" placeholder="CPF" onChange={handleChange} />
+          <Input name="phone" placeholder="Telefone" onChange={handleChange} />
+          <Input name="token" placeholder="Token do cartão" onChange={handleChange} />
+          <Input name="street" placeholder="Rua" onChange={handleChange} />
+          <Input name="number" placeholder="Número" onChange={handleChange} />
+          <Input name="neighborhood" placeholder="Bairro" onChange={handleChange} />
+          <Input name="zipcode" placeholder="CEP" onChange={handleChange} />
+          <Input name="city" placeholder="Cidade" onChange={handleChange} />
+          <Input name="state" placeholder="Estado" onChange={handleChange} />
           <Button type="submit" className="w-full">Pagar</Button>
         </form>
       </Card>
