@@ -50,11 +50,8 @@ export async function createEfibankSubscription(
   logDebug('Starting subscription flow', { plan, customer });
   const efi = getClient();
 
-  const createdPlan = await efi.createPlan({}, {
-    name: plan,
-    interval: 1,
-    repeats: 0
-  });
+  const planBody: any = { name: plan, interval: 1 };
+  const createdPlan = await efi.createPlan({}, planBody);
   logDebug('Plan created', createdPlan.data);
 
   const subscription = await efi.createSubscriptionOneStep(
@@ -87,7 +84,11 @@ export async function createEfibankSubscription(
 export async function createPlan(name: string, interval: number, repeats?: number) {
   logDebug('createPlan', { name, interval, repeats });
   const efi = getClient();
-  const resp = await efi.createPlan({}, { name, interval, repeats });
+  const body: any = { name, interval };
+  if (typeof repeats === 'number' && repeats >= 2) {
+    body.repeats = repeats;
+  }
+  const resp = await efi.createPlan({}, body);
   logDebug('createPlan result', resp.data);
   return resp.data;
 }

@@ -37,8 +37,8 @@ const efi = new EfiPay({
 
 const plan = await efi.createPlan({}, {
   name: 'Plano Mensal',
-  interval: 1, // mensal
-  repeats: 0  // 0 = recorrência indefinida
+  interval: 1 // mensal
+  // repeats: 12   // opcional, >=2; omita para recorrência indeterminada
 });
 // logs are appended to debugCheckout.txt
 ```
@@ -111,3 +111,15 @@ curl -X POST http://localhost:3000/api/efibank/subscribe \
 
 The log will include plan creation, subscription creation and any
 errors returned by the Efibank API.
+
+### Common validation error
+
+If the API returns:
+
+```
+{"err":{"code":3500034,"error":"validation_error","error_description":{"property":"/repeats","message":"O valor 0 é menor que o mínimo 2."}}}
+```
+
+it means the `repeats` value sent was `0`, which is below the allowed
+minimum of `2`. To create an indefinite plan, omit the `repeats`
+field entirely or provide a value greater than or equal to `2`.
