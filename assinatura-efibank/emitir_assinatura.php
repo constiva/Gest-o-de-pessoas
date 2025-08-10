@@ -1,5 +1,6 @@
 <?php
 
+// Load Composer autoloader
 $autoload = realpath(__DIR__ . '/vendor/autoload.php');
 if (!file_exists($autoload)) {
     die("Autoload file not found or on path <code>$autoload</code>.");
@@ -9,17 +10,24 @@ require_once $autoload;
 use Efi\Exception\EfiException;
 use Efi\EfiPay;
 
-// Lê o arquivo json com suas credenciais
+// Read credentials
 $file = file_get_contents(__DIR__ . '/credentials.json');
 $options = json_decode($file, true);
 
-//recebendo os parâmetros pelo POST
-$plano = $_POST['plano'];
-$cliente = $_POST['customer'];
-$dataDeVencimento = isset($_POST['expire_at']) ? $_POST['expire_at'] : null;
-$item = $_POST['item'];
-$payment_token = isset($_POST['payment_token']) ? $_POST['payment_token'] : null;
-$endereco = isset($_POST['billing_address']) ? $_POST['billing_address'] : null;
+// Allow running both via web (POST) and CLI (stdin)
+if (php_sapi_name() === 'cli') {
+    $input = json_decode(stream_get_contents(STDIN), true);
+} else {
+    $input = $_POST;
+}
+
+// Parameters
+$plano = $input['plano'];
+$cliente = $input['customer'];
+$dataDeVencimento = isset($input['expire_at']) ? $input['expire_at'] : null;
+$item = $input['item'];
+$payment_token = isset($input['payment_token']) ? $input['payment_token'] : null;
+$endereco = isset($input['billing_address']) ? $input['billing_address'] : null;
 
 //corpo da requição(informações sobre o plano de assinatura)
 $body_plan = [

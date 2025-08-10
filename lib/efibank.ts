@@ -1,6 +1,8 @@
 import EfiPay from 'gn-api-sdk-node';
 import fs from 'fs';
 import path from 'path';
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
 const DEBUG_PATH = path.join(process.cwd(), 'debugCheckout.txt');
 
@@ -29,55 +31,17 @@ function getClient() {
   });
 }
 
-interface Customer {
-  name: string;
-  email: string;
-}
+const execFileAsync = promisify(execFile);
 
-interface Card {
-  number: string;
-  holder: string;
-  expMonth: string;
-  expYear: string;
-  cvv: string;
-}
-
-export async function createEfibankSubscription(
-  plan: string,
-  customer: Customer,
-  card: Card
-) {
-  logDebug('Starting subscription flow', { plan, customer });
-  const efi = getClient();
-
-  const planBody: any = { name: plan, interval: 1 };
-  const createdPlan = await efi.createPlan({}, planBody);
-  logDebug('Plan created', createdPlan.data);
-
-  const subscription = await efi.createSubscriptionOneStep(
-    { id: createdPlan.data.plan_id },
-    {
-      customer: { name: customer.name, email: customer.email },
-      items: [{ name: 'Assinatura', value: 1000, amount: 1 }],
-      payment: {
-        credit_card: {
-          customer: {
-            name: customer.name,
-            email: customer.email
-          },
-          installments: 1,
-          card_number: card.number,
-          cardholder_name: card.holder,
-          exp_month: card.expMonth,
-          exp_year: card.expYear,
-          security_code: card.cvv
-        }
-      }
-    }
+export async function createEfibankSubscription(payload: any) {
+  logDebug('Starting subscription via PHP', payload);
+  const { stdout } = await execFileAsync(
+    'php',
+    ['assinatura-efibank/emitir_assinatura.php'],
+    { input: JSON.stringify(payload), maxBuffer: 1024 * 1024 }
   );
-  logDebug('Subscription created', subscription.data);
-
-  return subscription.data;
+  logDebug('PHP subscription output', stdout);
+  return JSON.parse(stdout);
 }
 
 // ---- Admin helpers ----
@@ -96,7 +60,7 @@ export async function createPlan(name: string, interval: number, repeats?: numbe
 export async function listPlans(params: any = {}) {
   logDebug('listPlans', params);
   const efi = getClient();
-  const resp = await efi.listPlans({}, params);
+  const resp = await efi.getPlans({}, params);
   logDebug('listPlans result', resp.data);
   return resp.data;
 }
@@ -162,6 +126,14 @@ export async function updateSubscription(id: number, body: any) {
   const efi = getClient();
   const resp = await efi.updateSubscription({ id }, body);
   logDebug('updateSubscription result', resp.data);
+  return resp.data;
+}
+
+export async function updateSubscriptionMetadata(id: number, body: any) {
+  logDebug('updateSubscriptionMetadata', { id, body });
+  const efi = getClient();
+  const resp = await efi.updateSubscriptionMetadata({ id }, body);
+  logDebug('updateSubscriptionMetadata result', resp.data);
   return resp.data;
 }
 

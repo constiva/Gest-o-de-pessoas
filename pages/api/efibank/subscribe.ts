@@ -14,9 +14,9 @@ function logDebug(msg: string, data?: unknown) {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
   try {
-    const { plan, customer, card } = req.body;
-    logDebug('API /efibank/subscribe called', { plan, customer });
-    const sub = await createEfibankSubscription(plan, customer, card);
+    const payload = req.body;
+    logDebug('API /efibank/subscribe called', payload);
+    const sub = await createEfibankSubscription(payload);
     logDebug('API /efibank/subscribe success', sub);
     res.status(200).json(sub);
   } catch (err) {
