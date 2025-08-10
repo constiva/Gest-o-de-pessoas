@@ -6,7 +6,7 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 export const PLAN_LIMITS = {
-  basic: 5,
+  free: 5,
   pro: 50,
   enterprise: 500,
 } as const;

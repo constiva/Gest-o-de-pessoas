@@ -9,7 +9,6 @@ import { PLAN_LIMITS } from '../lib/utils';
 
 interface SignUpForm {
   companyName: string;
-  plan: string;
   name: string;
   phone: string;
   email: string;
@@ -19,7 +18,6 @@ interface SignUpForm {
 export default function Register() {
   const [form, setForm] = useState<SignUpForm>({
     companyName: '',
-    plan: 'basic',
     name: '',
     phone: '',
     email: '',
@@ -27,9 +25,7 @@ export default function Register() {
   });
   const router = useRouter();
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
@@ -44,17 +40,14 @@ export default function Register() {
       return;
     }
     const userId = authData.user.id;
-    const maxEmployees =
-      form.plan === 'basic'
-        ? PLAN_LIMITS.basic
-        : 0;
+    const maxEmployees = PLAN_LIMITS.free;
     const { data: company, error: companyError } = await supabase
       .from('companies')
       .insert({
         name: form.companyName,
         email: form.email,
         phone: form.phone,
-        plan: form.plan,
+        plan: 'free',
         maxemployees: maxEmployees
       })
       .select()
@@ -74,15 +67,7 @@ export default function Register() {
       alert(userError.message);
       return;
     }
-    if (form.plan === 'basic') {
-      router.push('/dashboard');
-    } else {
-      router.push(
-        `/checkout?plan=${form.plan}&companyId=${company.id}&name=${encodeURIComponent(
-          form.name
-        )}&email=${encodeURIComponent(form.email)}`
-      );
-    }
+    router.push('/dashboard');
   };
 
   return (
@@ -93,17 +78,6 @@ export default function Register() {
         </h1>
         <form onSubmit={handleSubmit} className="space-y-3">
           <Input name="companyName" placeholder="Empresa" onChange={handleChange} />
-          <label className="block text-sm">Plano</label>
-          <select
-            name="plan"
-            value={form.plan}
-            onChange={handleChange}
-            className="w-full border rounded p-2"
-          >
-            <option value="basic">Básico - 5 funcionários</option>
-            <option value="pro">Pro - 50 funcionários</option>
-            <option value="enterprise">Enterprise - 500 funcionários</option>
-          </select>
           <Input name="name" placeholder="Seu nome" onChange={handleChange} />
           <Input name="phone" placeholder="Telefone" onChange={handleChange} />
           <Input name="email" placeholder="Email" onChange={handleChange} />

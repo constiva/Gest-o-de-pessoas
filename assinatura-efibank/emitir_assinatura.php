@@ -1,5 +1,6 @@
 <?php
 
+// Load Composer autoloader
 $autoload = realpath(__DIR__ . '/vendor/autoload.php');
 if (!file_exists($autoload)) {
     die("Autoload file not found or on path <code>$autoload</code>.");
@@ -9,17 +10,30 @@ require_once $autoload;
 use Efi\Exception\EfiException;
 use Efi\EfiPay;
 
-// Lê o arquivo json com suas credenciais
+// Read credentials
 $file = file_get_contents(__DIR__ . '/credentials.json');
 $options = json_decode($file, true);
 
-//recebendo os parâmetros pelo POST
-$plano = $_POST['plano'];
-$cliente = $_POST['customer'];
-$dataDeVencimento = isset($_POST['expire_at']) ? $_POST['expire_at'] : null;
-$item = $_POST['item'];
-$payment_token = isset($_POST['payment_token']) ? $_POST['payment_token'] : null;
-$endereco = isset($_POST['billing_address']) ? $_POST['billing_address'] : null;
+function log_debug($msg, $data = null) {
+    $line = '[' . date('c') . "] $msg" . ($data ? ' ' . json_encode($data) : '') . "\n";
+    file_put_contents(__DIR__ . '/../debugCheckout.txt', $line, FILE_APPEND);
+}
+
+// Allow running both via web (POST) and CLI (stdin)
+if (php_sapi_name() === 'cli') {
+    $input = json_decode(stream_get_contents(STDIN), true);
+} else {
+    $input = $_POST;
+}
+log_debug('PHP input', $input);
+
+// Parameters
+$plano = $input['plano'];
+$cliente = $input['customer'];
+$dataDeVencimento = isset($input['expire_at']) ? $input['expire_at'] : null;
+$item = $input['item'];
+$payment_token = isset($input['payment_token']) ? $input['payment_token'] : null;
+$endereco = isset($input['billing_address']) ? $input['billing_address'] : null;
 
 //corpo da requição(informações sobre o plano de assinatura)
 $body_plan = [
@@ -29,6 +43,7 @@ $body_plan = [
 
 //recebe um plano criado
 $novoPlano = criarPlano($options, $body_plan);
+log_debug('Plan created', $novoPlano);
 
 /**
  * Método reponsável por criar um plano, caso seja bem sucedido retornará o plano criado
@@ -36,19 +51,25 @@ $novoPlano = criarPlano($options, $body_plan);
  */
 function criarPlano($options, $body_plan)
 {
-	try {
-		$api = new EfiPay($options);
-		$plan = $api->createPlan($params = [], $body_plan);
-		return $plan['data'];
-	} catch (EfiException $e) {
-		echo "Criar Plano";
-		print_r($e->code);
-		print_r($e->error);
-		print_r($e->errorDescription);
-	} catch (Exception $e) {
-		echo "Criar Plano";
-		print_r($e->getMessage());
-	}
+        try {
+                $api = new EfiPay($options);
+                $plan = $api->createPlan($params = [], $body_plan);
+                return $plan['data'];
+        } catch (EfiException $e) {
+                log_debug('createPlan error', [
+                        'code' => $e->code,
+                        'error' => $e->error,
+                        'description' => $e->errorDescription
+                ]);
+                echo "Criar Plano";
+                print_r($e->code);
+                print_r($e->error);
+                print_r($e->errorDescription);
+        } catch (Exception $e) {
+                log_debug('createPlan exception', $e->getMessage());
+                echo "Criar Plano";
+                print_r($e->getMessage());
+        }
 }
 
 //produto ou serviço da assinatura
@@ -74,6 +95,7 @@ $params_signature = ['id' => (int) $novoPlano['plan_id']];
 
 
 $novaAssinatura = associarAssinaturaAPlano($options, $params_signature, $body_signature);
+log_debug('Subscription associated', $novaAssinatura);
 
 /**
  * Método responsável por criar e inscrever uma assinatura em um plano já criado, caso bem sucedido retorna a assinatura criado
@@ -81,19 +103,25 @@ $novaAssinatura = associarAssinaturaAPlano($options, $params_signature, $body_si
  */
 function associarAssinaturaAPlano($options, $params_signature, $body_signature)
 {
-	try {
-		$api = new EfiPay($options);
-		$subscription = $api->createSubscription($params_signature, $body_signature);
-		return $subscription['data'];
-	} catch (EfiException $e) {
-		echo "Associar Assinatura";
-		print_r($e->code);
-		print_r($e->error);
-		print_r($e->errorDescription);
-	} catch (Exception $e) {
-		echo "Associar Assinatura";
-		print_r($e->getMessage());
-	}
+        try {
+                $api = new EfiPay($options);
+                $subscription = $api->createSubscription($params_signature, $body_signature);
+                return $subscription['data'];
+        } catch (EfiException $e) {
+                log_debug('createSubscription error', [
+                        'code' => $e->code,
+                        'error' => $e->error,
+                        'description' => $e->errorDescription
+                ]);
+                echo "Associar Assinatura";
+                print_r($e->code);
+                print_r($e->error);
+                print_r($e->errorDescription);
+        } catch (Exception $e) {
+                log_debug('createSubscription exception', $e->getMessage());
+                echo "Associar Assinatura";
+                print_r($e->getMessage());
+        }
 }
 
 //id do assinatura criada
@@ -136,20 +164,27 @@ if ($payment_token) {
 		'payment' => $payment
 	];
 
-	try {
+        try {
 
-		$api = new EfiPay($options);
-		$charge = $api->defineSubscriptionPayMethod($params_subscription, $body);
-		echo json_encode($charge);
-	} catch (EfiException $e) {
-		echo "Pagamento com Cartão\n";
-		print_r($e->code);
-		print_r($e->error);
-		print_r($e->errorDescription);
-	} catch (Exception $e) {
-		echo "Pagamento com Cartão\n";
-		print_r($e->getMessage());
-	}
+                $api = new EfiPay($options);
+                $charge = $api->defineSubscriptionPayMethod($params_subscription, $body);
+                log_debug('Card payment response', $charge);
+                echo json_encode($charge);
+        } catch (EfiException $e) {
+                echo "Pagamento com Cartão\n";
+                log_debug('Card payment error', [
+                    'code' => $e->code,
+                    'error' => $e->error,
+                    'description' => $e->errorDescription
+                ]);
+                print_r($e->code);
+                print_r($e->error);
+                print_r($e->errorDescription);
+        } catch (Exception $e) {
+                echo "Pagamento com Cartão\n";
+                log_debug('Card payment exception', $e->getMessage());
+                print_r($e->getMessage());
+        }
 } else {
 	$banking_billet = [
 		'expire_at' => $dataDeVencimento,
@@ -164,18 +199,25 @@ if ($payment_token) {
 		'payment' => $payment
 	];
 
-	try {
+        try {
 
-		$api = new EfiPay($options);
-		$charge = $api->defineSubscriptionPayMethod($params_subscription, $body);
-		echo json_encode($charge);
-	} catch (EfiException $e) {
-		echo "Pagamento com Boleto\n";
-		print_r($e->code);
-		print_r($e->error);
-		print_r($e->errorDescription);
-	} catch (Exception $e) {
-		echo "Pagamento com Boleto\n";
-		print_r($e->getMessage());
-	}
+                $api = new EfiPay($options);
+                $charge = $api->defineSubscriptionPayMethod($params_subscription, $body);
+                log_debug('Billet payment response', $charge);
+                echo json_encode($charge);
+        } catch (EfiException $e) {
+                echo "Pagamento com Boleto\n";
+                log_debug('Billet payment error', [
+                    'code' => $e->code,
+                    'error' => $e->error,
+                    'description' => $e->errorDescription
+                ]);
+                print_r($e->code);
+                print_r($e->error);
+                print_r($e->errorDescription);
+        } catch (Exception $e) {
+                echo "Pagamento com Boleto\n";
+                log_debug('Billet payment exception', $e->getMessage());
+                print_r($e->getMessage());
+        }
 }
