@@ -1,0 +1,461 @@
+:root {
+    --ifm-color-primary: rgba(11, 161, 194, 1);
+    --ifm-font-family-base: 'Red Hat Display', sans-serif;
+  
+    --orange-100: 255 216 194;
+    --orange-200: 255 184 143;
+    --orange-300: 255 153 93;
+    --orange-400: 255 134 62;
+    --orange-500: 243 112 33;
+    --orange-600: 205 76 0;
+    --orange-700: 154 58 0;
+    --orange-800: 127 48 0;
+  
+    --blue-100: 197 245 255;
+    --blue-200: 119 214 234;
+    --blue-300: 49 201 234;
+    --blue-400: 32 182 215;
+    --blue-500: 11 161 194;
+    --blue-600: 0 128 157;
+    --blue-700: 0 97 119;
+    --blue-800: 0 77 94;
+  
+    --yellow-100: 255 234 199;
+    --yellow-200: 252 213 151;
+    --yellow-300: 252 194 101;
+    --yellow-400: 252 174 50;
+    --yellow-500: 243 156 18;
+    --yellow-600: 211 130 0;
+    --yellow-700: 166 102 0;
+    --yellow-800: 126 78 0;
+  
+    --red-100: 255 214 212;
+    --red-200: 255 176 173;
+    --red-300: 253 132 128;
+    --red-400: 255 91 87;
+    --red-500: 248 58 54;
+    --red-600: 223 48 43;
+    --red-700: 217 30 24;
+    --red-800: 181 0 0;
+  
+    --green-100: 210 239 200;
+    --green-200: 162 222 142;
+    --green-300: 116 200 87;
+    --green-400: 99 188 67;
+    --green-500: 87 167 59;
+    --green-600: 52 135 23;
+    --green-700: 36 121 7;
+    --green-800: 31 102 6;
+  
+    --white: 255 255 255;
+    --gray-100: 246 248 252;
+    --gray-200: 232 240 248;
+    --gray-300: 216 224 232;
+    --gray-400: 164 172 188;
+    --gray-500: 140 148 164;
+    --gray-600: 103 113 131;
+    --gray-700: 88 100 118;
+    --gray-800: 69 77 88;
+    --gray-900: 47 47 47;
+    --gray-1000: 29 29 29;
+    --black: 18 18 18;
+  
+    --light-500: var(--white);
+  }
+  
+  @import url(https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@400;500;700;900&display=swap);
+
+html {
+    font-family: 'Red Hat Display', sans-serif;
+    position: relative;
+    min-height: 100%;
+    font-size: 14px; 
+    font-weight: 500;
+}
+
+body {
+    font-family: 'Red Hat Display', sans-serif;
+    color: rgb(var(--gray-1000));
+    font-size: 12px;
+    background-color: rgb(var(--gray-100)) !important;
+}
+
+::placeholder{
+  color: rgb(var(--gray-400)) !important;
+  font-size: 14px;
+}
+
+.nav-link:focus, .nav-link:hover {
+  color: #0ba1c2;
+}
+
+.tab_assinatura {
+  padding-left: 15px !important;
+}
+
+.table{
+  font-size: 12px !important;
+}
+
+.bt {
+    height: 120px
+}
+
+a {
+  color: #0ba1c2;
+  text-decoration: none;
+}
+
+a:hover {
+  color: #0ba1c2;
+}
+
+.margin{
+  margin-top: 84px;
+} 
+
+.nav-tabs .nav-item.show .nav-link, .nav-tabs .nav-link.active {
+  color: #0ba1c2;
+}
+
+.btn.btn-destaque {
+    border: none;
+    border-color: transparent;
+    background-color: #f26522;
+    background-color: #f26522;
+    background-image: -moz-linear-gradient(top, #FFF, #E6E7E8);
+    background-image: -webkit-gradient(linear, 0 0, 0 100%, from(#FFF), to(#E6E7E8));
+    background-image: -webkit-linear-gradient(top, #FFF, #E6E7E8);
+    background-image: -o-linear-gradient(top, #FFF, #E6E7E8);
+    background-image: linear-gradient(to bottom, #FFF, #E6E7E8);
+}
+
+.btn-warning {
+    background-color: #f26522;
+}
+
+.container-fluid {
+    font-size: 16px;
+    display: block;
+    font-weight: 500;
+}
+
+.navbar{
+  padding: 0 !important;
+}
+
+.navbar-efi{
+  padding: 10px 93px;
+  background-color: #FFF;
+  border-bottom: 2px solid rgb(var(--gray-200));
+}
+
+.content{
+  padding: 50px 93px;
+}
+
+.ex{
+  font-size: 13px;
+  color: rgb(var(--gray-600));
+}
+
+.custom-col-4 {
+  width: 50%; 
+  float: left;
+  box-sizing: border-box;
+  padding: 0 15px; /* Espaçamento opcional entre as colunas */
+}
+
+.custom-col-5 {
+  width: 20%; /* 100% dividido por 5 */
+  float: left;
+  box-sizing: border-box;
+  padding: 0 15px; /* Espaçamento opcional entre as colunas */
+}
+
+.custom-col-6 {
+  width: 33%; /* 100% dividido por 5 */
+  float: left;
+  box-sizing: border-box;
+  padding: 0 15px; /* Espaçamento opcional entre as colunas */
+}
+
+@media (max-width: 767px) {
+    .navbar-brand {
+        padding: 0;
+    }
+
+    .navbar-brand img {
+        margin-top: 5px;
+        margin-left: 5px;
+    }
+}
+
+.navbar-toggler {
+  display: none;
+}
+
+.nav-link {
+  color: rgb(var(--gray-900));
+  font-size: 15px;
+}
+
+.dropdown-menu{
+  width: 150px;
+  margin: 10px!important;
+  border-radius: 8px;
+  border: 1px solid rgb(var(--gray-200));
+}
+
+.dropdown-menu>li>a {
+  display: block;
+  clear: both;
+  line-height: 1.846;
+  white-space: nowrap;
+  padding: 3px 10px;
+  color: rgb(var(--gray-900));
+}
+
+.dropdown-menu>li>a:hover, .dropdown-menu>li>a:focus {
+  background-color: rgb(var(--gray-200));
+}
+
+.info-body {
+  padding-right: 50px;
+}
+
+.info-body-cartao{
+  padding-right: 8px;
+}
+
+.form-control {
+  border-color: rgb(var(--gray-200));
+}
+
+.custom-input:focus {
+  border-color: rgb(var(--gray-200)) !important; /* Substitua 'red' pela cor desejada */
+  box-shadow: 0 0 0 0.1rem rgb(var(--gray-200)) !important; /* Efeito de sombra para maior destaque (opcional) */
+}
+
+.alert-warning {
+  background-color: rgb(var(--yellow-500)/16%) !important;
+  color: rgb(var(--gray-900)) !important;
+  border-radius: 8px;
+  font-size: 14px;
+}
+
+
+/* Botões */
+
+.btn-efi{
+    display: inline-flex;
+    background-color: transparent;
+    color: rgba(11, 161, 194, 1) !important;
+    border: 1px solid rgba(11, 161, 194, 1);
+    border-radius: 8px;
+    padding: 8px !important;
+    font-size: 16px;
+    text-align: center;
+    font-family: 'Red Hat Display', sans-serif;
+    letter-spacing: 0.28px;
+    font-weight: 500;
+    text-transform: none;
+}
+
+.btn-efi:hover {
+  background-image: linear-gradient(to bottom, rgba(11, 161, 194, 1), rgb(var(--blue-400)), rgb(var(--blue-300)));
+  color: white !important;
+}
+
+.btn-efi-blue {
+  display: inline-flex;
+    background-color: rgba(11, 161, 194, 1);
+    border: 1px solid rgba(11, 161, 194, 1);
+    color: White !important;
+    border-radius: 8px;
+    margin: 0 15px 0 0;
+    padding: 8px !important;
+    font-size: 16px;
+    text-align: center;
+    font-family: 'Red Hat Display', sans-serif;
+    letter-spacing: 0.28px;
+    font-weight: 500;
+    text-transform: none;
+  }
+  
+  .btn-efi-blue:hover {
+    background-image: linear-gradient(to bottom, rgba(11, 161, 194, 1), rgb(var(--blue-400)), rgb(var(--blue-300)));
+  }
+
+  .btn-parcela{
+    display: inline-flex;
+    background-color: transparent;
+    color: rgba(11, 161, 194, 1) !important;
+    border: 1px solid rgba(11, 161, 194, 1);
+    border-radius: 8px;
+    font-size: 16px;
+    text-align: center;
+    font-family: 'Red Hat Display', sans-serif;
+    letter-spacing: 0.28px;
+    font-weight: 500;
+    text-transform: none;
+  }
+
+  .btn-parcela:hover {
+    background-image: linear-gradient(to bottom, rgba(11, 161, 194, 1), rgb(var(--blue-400)), rgb(var(--blue-300)));
+    color: white !important;
+  }
+
+  .center-div {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+
+  .icon-download {
+    /* Estilos do ícone */
+    background-image: url(../../img/download.svg);
+    /* URL do arquivo SVG Sprite */
+    background-repeat: no-repeat;
+    display: inline-block;
+    margin-top: 2px;
+    margin-right: 10px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .btn-efi:hover .icon-download {
+    background-image: url(../../img/download-branco.svg);
+    /* URL do arquivo SVG Sprite */
+  }
+
+  .icon-github {
+    /* Estilos do ícone */
+    background-image: url(../../img/github-branco.svg);
+    /* URL do arquivo SVG Sprite */
+    background-repeat: no-repeat;
+    display: inline-block;
+    margin-top: 2px;
+    margin-right: 10px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .icon-success img {
+    margin-left: 8px;
+    width: 20px;
+    height: 20px;
+  }
+
+  #msg-box{
+    padding-left: 150px;
+  }
+
+  .icon {
+    /* Estilos do ícone */
+    background-image: url(../../img/square-arrow-up-right.svg);
+    /* URL do arquivo SVG Sprite */
+    background-repeat: no-repeat;
+    display: inline-block;
+    margin-top: 4px;
+    margin-left: 5px;
+    width: 20px;
+    height: 20px;
+  }
+  
+  .btn-efi:hover .icon {
+    background-image: url(../../img/square-arrow-up-right-white.svg);
+    /* URL do arquivo SVG Sprite */
+  }
+   
+
+  /* cards */
+
+.card-exemplos{
+  padding: 0 100px 15px 100px;
+}
+
+.card{
+  max-width: 445px;
+  margin-top: 50px;
+  border-radius: 8px !important;
+  border-color: rgb(var(--gray-200)) !important;
+}
+
+.card-img-top {
+    height: 220px;
+}
+
+.card-body{
+  margin-top: 10px;
+  color: rgb(var(--gray-900));
+}
+
+.card-title{
+  margin-bottom: 20px;
+}
+
+/* footer */
+footer{
+  background-color: rgb(var(--gray-100));
+  border-top: 1px solid rgb(var(--gray-200));
+  padding: 20px 100px 45px 120px;
+}
+
+
+  
+  #contact-box {
+    text-align: center;
+  }
+  
+  #contact-box p {
+    font-size: 12px;
+    color: rgb(var(--gray-700));
+  }
+  
+  .contact-title-efi {
+    text-align: left;
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.28px;
+    color: rgb(var(--gray-800));
+  }
+  
+  .contact-title {
+    font-size: 14px;
+    font-weight: 900;
+    letter-spacing: 0.28px;
+    color: rgb(var(--gray-800));
+    text-align: center;
+  }
+  
+  .footer-redes {
+    margin-top: 65px;
+    margin-right: 10px;
+  }
+  
+  .info {
+    padding-left: 35px;
+    color: rgb(var(--gray-700));
+    font-size: 12px;
+    letter-spacing: .24px;
+  }
+
+  .info_endereco {
+    color: rgb(var(--gray-700));
+    font-size: 12px;
+    letter-spacing: .24px;
+  }
+  
+  .contact-redes{
+    text-align: right;
+  }
+  
+  .ms-6 {
+    margin-left: 10px!important;
+  }
+  
+  .footer-redes img:hover {
+    opacity: 0.9;
+  }
