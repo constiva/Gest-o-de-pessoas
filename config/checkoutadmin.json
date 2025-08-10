@@ -1,0 +1,10 @@
+{
+  "defaultPlan": {
+    "interval": 1,
+    "repeats": null
+  },
+  "defaultItem": {
+    "name": "Internet - Mensalidade",
+    "value": 6990
+  }
+}

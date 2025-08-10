@@ -1,0 +1,131 @@
+Efibank Checkout Integration
+============================
+
+1. Configure environment variables
+---------------------------------
+Create a `.env.local` file (this file should **not** be committed) and add:
+
+EFIBANK_CLIENT_ID=Client_Id_89ade8140727154e33cbe9736bcd787202bb5bb0
+EFIBANK_CLIENT_SECRET=Client_Secret_40244e668000e4434dd04bc16cf65456faa88db6
+EFIBANK_ACCOUNT_ID=2b66b5aca795962bc41a5db3c42ea272
+EFIBANK_PIX_KEY=7f03e28f-8ad4-45b0-b452-3552180c6ac4
+EFIBANK_CERTIFICATE_PATH=./certs/efibank.p12
+
+Place your Efibank `.p12` certificate at `certs/efibank.p12` (this path is relative
+to the project root). Every request and response is logged to `debugCheckout.txt`
+for troubleshooting.
+
+2. Install the Efibank SDK
+--------------------------
+Use the official Node SDK to communicate with the Efibank API:
+
+    npm install gn-api-sdk-node --save
+
+3. Create a subscription plan
+-----------------------------
+Example using the SDK:
+
+```ts
+import EfiPay from 'gn-api-sdk-node';
+import fs from 'fs';
+
+const efi = new EfiPay({
+  client_id: process.env.EFIBANK_CLIENT_ID,
+  client_secret: process.env.EFIBANK_CLIENT_SECRET,
+  certificate: fs.readFileSync(process.env.EFIBANK_CERTIFICATE_PATH!)
+});
+
+const plan = await efi.createPlan({}, {
+  name: 'Plano Mensal',
+  interval: 1 // mensal
+  // repeats: 12   // opcional, >=2; omita para recorrência indeterminada
+});
+// logs are appended to debugCheckout.txt
+```
+
+4. Create a subscription in one step
+------------------------------------
+```ts
+await efi.createSubscriptionOneStep({ id: plan.data.plan_id }, {
+  customer: {
+    name: 'Cliente Teste',
+    email: 'cliente@example.com'
+  },
+  items: [{ name: 'Assinatura', value: 1000, amount: 1 }],
+  payment: {
+    credit_card: {
+      customer: {
+        billing_address: {
+          street: 'Rua Teste',
+          number: 1,
+          zipcode: '00000-000'
+        }
+      },
+      installments: 1
+    }
+  }
+});
+```
+
+5. Two‑step flow
+----------------
+1. Crie a inscrição: `POST /v1/plan/:id/subscription`
+2. Defina o pagamento: `POST /v1/subscription/:id/pay`
+
+6. Monitor and manage subscriptions
+-----------------------------------
+- Status da assinatura: `GET /v1/subscription/:id`
+- Retentativa cartão: `POST /v1/charge/:id/retry`
+- Cancelar: `PUT /v1/subscription/:id/cancel`
+- Histórico: `POST /v1/subscription/:id/history`
+
+7. Admin dashboard
+------------------
+Para testar rapidamente os endpoints, acesse `/checkoutadmin` e informe a
+senha `123456`. A página oferece formulários simples para:
+
+- Criar, listar, renomear e cancelar planos
+- Criar uma assinatura vinculada a um plano
+- Pagar uma assinatura por boleto
+
+Todas as chamadas efetuadas por essa página também são registradas em
+`debugCheckout.txt`.
+
+7. Useful plan endpoints
+------------------------
+- Listar planos: `GET /v1/plans`
+- Editar nome: `PUT /v1/plan/:id`
+- Cancelar plano: `DELETE /v1/plan/:id`
+
+8. Debugging
+------------
+Calls to `/api/efibank/subscribe` and the webhook append JSON lines
+to `debugCheckout.txt`. Inspect this file to verify SDK connection
+and payloads when testing with `curl`:
+
+```
+curl -X POST http://localhost:3000/api/efibank/subscribe \
+  -H 'Content-Type: application/json' \
+  -d '{"plan":"Plano Mensal","customer":{"name":"Teste","email":"t@example.com"},"card":{"number":"4111111111111111","holder":"Teste","expMonth":"12","expYear":"2030","cvv":"123"}}'
+```
+
+The log will include plan creation, subscription creation and any
+errors returned by the Efibank API.
+
+### Common validation error
+
+If the API returns:
+
+```
+{"err":{"code":3500034,"error":"validation_error","error_description":{"property":"/repeats","message":"O valor 0 é menor que o mínimo 2."}}}
+```
+
+it means the `repeats` value sent was `0`, which is below the allowed
+minimum of `2`. To create an indefinite plan, omit the `repeats`
+field entirely or provide a value greater than or equal to `2`.
+
+13. Documentation and Admin Config
+-------------------------------
+- Sample subscription flow docs live under `assinatura-efibak/`.
+- Customize default plan and item values for `/checkoutadmin` in `config/checkoutadmin.json`.
+
