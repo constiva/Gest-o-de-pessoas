@@ -96,7 +96,7 @@ export async function createPlan(name: string, interval: number, repeats?: numbe
 export async function listPlans(params: any = {}) {
   logDebug('listPlans', params);
   const efi = getClient();
-  const resp = await efi.listPlans({}, params);
+  const resp = await efi.getPlans({}, params);
   logDebug('listPlans result', resp.data);
   return resp.data;
 }
@@ -162,6 +162,14 @@ export async function updateSubscription(id: number, body: any) {
   const efi = getClient();
   const resp = await efi.updateSubscription({ id }, body);
   logDebug('updateSubscription result', resp.data);
+  return resp.data;
+}
+
+export async function updateSubscriptionMetadata(id: number, body: any) {
+  logDebug('updateSubscriptionMetadata', { id, body });
+  const efi = getClient();
+  const resp = await efi.updateSubscriptionMetadata({ id }, body);
+  logDebug('updateSubscriptionMetadata result', resp.data);
   return resp.data;
 }
 

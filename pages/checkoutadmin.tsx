@@ -148,6 +148,29 @@ export default function CheckoutAdmin() {
         </form>
       </section>
 
+      <section>
+        <h2 className="font-bold">Atualizar metadados</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const form = e.currentTarget as any;
+            call('updateSubscriptionMetadata', {
+              id: Number(form.id.value),
+              body: {
+                custom_id: form.customId.value,
+                notification_url: form.url.value
+              }
+            });
+          }}
+          className="space-x-2"
+        >
+          <input name="id" placeholder="Subscription ID" type="number" className="border p-1 w-32" />
+          <input name="customId" placeholder="Custom ID" className="border p-1" />
+          <input name="url" placeholder="Notification URL" className="border p-1 w-64" />
+          <button className="bg-purple-500 text-white px-2 py-1">Atualizar</button>
+        </form>
+      </section>
+
       <pre className="whitespace-pre-wrap bg-gray-100 p-2">{log}</pre>
     </div>
   );

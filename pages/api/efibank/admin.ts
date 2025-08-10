@@ -11,6 +11,7 @@ import {
   listCharges,
   retryCharge,
   updateSubscription,
+  updateSubscriptionMetadata,
   cancelSubscription
 } from '../../../lib/efibank';
 
@@ -50,6 +51,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         break;
       case 'updateSubscription':
         data = await updateSubscription(params.id, params.body);
+        break;
+      case 'updateSubscriptionMetadata':
+        data = await updateSubscriptionMetadata(params.id, params.body);
         break;
       case 'cancelSubscription':
         data = await cancelSubscription(params.id);
