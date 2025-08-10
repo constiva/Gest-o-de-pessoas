@@ -54,17 +54,25 @@ export default function Checkout() {
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
+    if (!checkoutObj) {
+      console.error('checkout not loaded');
+      return;
+    }
+
     const token: string = await new Promise((resolve, reject) => {
-      if (!checkoutObj) return reject(new Error('checkout not loaded'));
-      checkoutObj.getPaymentToken({
-        brand: form.brand,
-        number: form.number,
-        cvv: form.cvv,
-        expiration_month: form.expiration_month,
-        expiration_year: form.expiration_year
-      }, (err: any, data: any) => {
-        if (err) reject(err); else resolve(data.data.payment_token);
-      });
+      checkoutObj.getPaymentToken(
+        {
+          brand: form.brand,
+          number: form.number,
+          cvv: form.cvv,
+          expiration_month: form.expiration_month,
+          expiration_year: form.expiration_year,
+        },
+        (err: any, data: any) => {
+          if (err) reject(err);
+          else resolve(data.data.payment_token);
+        }
+      );
     });
 
     const res = await fetch('/api/efibank/subscribe', {
@@ -117,7 +125,9 @@ export default function Checkout() {
           <Input name="zipcode" placeholder="CEP" onChange={handleChange} />
           <Input name="city" placeholder="Cidade" onChange={handleChange} />
           <Input name="state" placeholder="Estado" onChange={handleChange} />
-          <Button type="submit" className="w-full">Pagar</Button>
+          <Button type="submit" className="w-full" disabled={!checkoutObj}>
+            Pagar
+          </Button>
         </form>
       </Card>
     </div>
