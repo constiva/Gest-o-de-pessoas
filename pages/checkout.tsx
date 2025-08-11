@@ -6,6 +6,10 @@ import { Button } from '../components/ui/button';
 import { supabase } from '../lib/supabaseClient';
 import Script from 'next/script';
 
+// Helper para acessar o global sem brigar com os tipos
+const getEfi = () =>
+  (typeof window !== 'undefined' ? (window as any).EfiPay : undefined);
+
 type Plan = {
   id: string;
   name: string;
@@ -21,7 +25,7 @@ type Plan = {
 };
 type Profile = { id: string; name: string; email: string; company_id: string };
 
-declare global { interface Window { EfiPay?: any } }
+//declare global { interface Window { EfiPay?: any } }
 
 // ======= ENV / CONSTS =======
 const RAW_ENV_ACCOUNT_ID =
@@ -192,15 +196,15 @@ export default function Checkout() {
   // ======= SDK: globals & fingerprint =======
   useEffect(() => {
     if (!sdkLoaded) return;
-    const ep = !!window.EfiPay;
-    const cc = !!window.EfiPay?.CreditCard;
+    const ep = !!getEfi();
+    const cc = !!getEfi()?.CreditCard;
     setHasEfiPay(ep);
     setHasCreditCard(cc);
 
     (async () => {
-      if (cc && typeof window.EfiPay.CreditCard.isScriptBlocked === 'function') {
+      if (cc && typeof getEfi().CreditCard.isScriptBlocked === 'function') {
         try {
-          const blocked = await window.EfiPay.CreditCard.isScriptBlocked();
+          const blocked = await getEfi().CreditCard.isScriptBlocked();
           setFingerBlocked(!!blocked);
           if (blocked) setError('O script de fingerprint está bloqueado (extensão/navegador). Desative bloqueadores e recarregue.');
         } catch { setFingerBlocked(null); }
@@ -223,7 +227,7 @@ export default function Checkout() {
   // ======= helper: ensure Efi JS =======
   async function ensureEfiJs() {
     if (typeof window === 'undefined') return false;
-    if (window.EfiPay?.CreditCard) return true;
+    if (getEfi()?.CreditCard) return true;
     await new Promise<void>((resolve, reject) => {
       const s = document.createElement('script');
       s.src = SDK_URL;
@@ -232,7 +236,7 @@ export default function Checkout() {
       s.onerror = () => reject(new Error('Falha ao carregar Efi JS'));
       document.head.appendChild(s);
     });
-    return !!window.EfiPay?.CreditCard;
+    return !!getEfi()?.CreditCard;
   }
 
   // ======= submit =======
@@ -241,7 +245,7 @@ export default function Checkout() {
     setError(null);
 
     // PRECHECKS
-    if (!(await ensureEfiJs()) || !window.EfiPay?.CreditCard) {
+    if (!(await ensureEfiJs()) || !getEfi()?.CreditCard) {
       setError('SDK de pagamento não carregou. Recarregue a página.');
       return;
     }
@@ -270,7 +274,7 @@ export default function Checkout() {
         lastProxiedUrl,
       });
 
-      const tokenResult = await window.EfiPay.CreditCard
+      const tokenResult = await getEfi().CreditCard
         .setAccount(ACCOUNT_ID)              // Identificador de Conta (payee)
         .setEnvironment(EFI_ENV)             // 'sandbox' | 'production'
         .setCreditCardData({
@@ -545,7 +549,7 @@ export default function Checkout() {
               <ul className="space-y-1">
                 <li>Arquivo SDK: <code>{SDK_URL}</code> — HTTP: <b>{scriptHTTP}</b></li>
                 <li>Script carregado: <b>{String(sdkLoaded)}</b></li>
-                <li>window.EfiPay: <b>{String(hasEfiPay)}</b></li>
+                <li>getEfi(): <b>{String(hasEfiPay)}</b></li>
                 <li>EfiPay.CreditCard: <b>{String(hasCreditCard)}</b></li>
                 <li>Fingerprint bloqueado: <b>{fingerBlocked === null ? 'indisponível' : String(fingerBlocked)}</b></li>
                 <li>ENV: accountId=<b>{maskAccountId(ACCOUNT_ID)}</b> env=<b>{EFI_ENV}</b></li>
