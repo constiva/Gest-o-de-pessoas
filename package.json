@@ -15,8 +15,11 @@
     "clsx": "^2.1.0",
     "gn-api-sdk-node": "^1.0.0",
     "next": "14.1.4",
+    "payment-token-efi": "^3.2.0",
     "react": "18.2.0",
     "react-dom": "18.2.0",
+    "sdk-node-apis-efi": "^1.2.25",
+    "sdk-typescript-apis-efi": "^1.0.2",
     "tailwind-merge": "^2.2.1"
   },
   "devDependencies": {
