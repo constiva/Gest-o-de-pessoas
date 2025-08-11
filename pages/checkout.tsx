@@ -562,8 +562,8 @@ export default function Checkout() {
                 )}
               </ul>
               <div className="mt-2 flex gap-2">
-                <Button variant="secondary" onClick={ensureEfiJs} type="button">Recarregar SDK</Button>
-                <Button variant="secondary" type="button" onClick={() => location.reload()}>Recarregar página</Button>
+                <Button variant="outline" onClick={ensureEfiJs} type="button">Recarregar SDK</Button>
+                <Button variant="outline" type="button" onClick={() => location.reload()}>Recarregar página</Button>
               </div>
             </div>
           )}
