@@ -53,7 +53,7 @@ export default function Upgrade() {
         name: u?.name ?? '',
         email: u?.email ?? '',
         companyId: u?.company_id ?? '',
-        currentPlan: u?.companies?.plan ?? null
+        currentPlan: u?.companies?.[0]?.plan ?? null
       });
 
       // plans (ativos)
@@ -171,12 +171,12 @@ export default function Upgrade() {
               <div className="mt-auto pt-2">
                 {pl.isFree ? (
                   <Button
-                    variant="secondary"
+                    variant="outline"
                     onClick={() => gotoCheckout(pl.id)}
-                    disabled={profile.currentPlan === 'free'}
+                    disabled={profile?.currentPlan === pl.slug} // desabilita só se já estiver nesse plano
                     className="w-full"
                   >
-                    {profile.currentPlan === 'free' ? 'Plano atual' : 'Migrar para Free'}
+                    {profile?.currentPlan === pl.slug ? 'Seu plano atual' : 'Assinar'}
                   </Button>
                 ) : (
                   <Button onClick={() => gotoCheckout(pl.id)} className="w-full">
