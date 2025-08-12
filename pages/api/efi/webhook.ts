@@ -19,7 +19,9 @@ function ensureLogFile() { try { if (!fs.existsSync(WEBHOOK_LOG)) fs.writeFileSy
 function appendFile(entry: any) { try { ensureLogFile(); fs.appendFileSync(WEBHOOK_LOG, JSON.stringify(entry) + '\n'); } catch {} }
 function readFileLog(): string { try { ensureLogFile(); return fs.readFileSync(WEBHOOK_LOG, 'utf8'); } catch { return ''; } }
 function clearFile() { try { fs.writeFileSync(WEBHOOK_LOG, ''); } catch {} }
+
 const norm = (s?: string | null) => String(s ?? '').toLowerCase();
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---------- SDK Efí helpers ----------
 function resolveCertPath(input?: string): string | null {
@@ -91,6 +93,80 @@ function pickEventFields(obj: any) {
 
   const status = extractStatus(statusRaw);
   return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status };
+}
+
+// ---------- Retry para evitar corrida com insert local ----------
+async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts = 8) {
+  // ~total 4–6s (500ms com backoff e teto de 1000ms)
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    attempt += 1;
+
+    // tenta como string
+    let subRes = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, company_id, plan_id, status, started_at')
+      .eq('efi_subscription_id', efiSubscriptionId)
+      .single();
+
+    // se não achou e o campo for numérico, tenta como número
+    if ((subRes.error || !subRes.data) && /^\d+$/.test(efiSubscriptionId)) {
+      subRes = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, company_id, plan_id, status, started_at')
+        .eq('efi_subscription_id', Number(efiSubscriptionId))
+        .single();
+    }
+
+    if (subRes.data) {
+      // log de sucesso e retorna
+      try {
+        await supabaseAdmin.from('payment_webhook_log').insert({
+          provider: 'efi',
+          received_at: new Date().toISOString(),
+          event_type: 'retry-found',
+          body: { attempt, efi_subscription_id: efiSubscriptionId },
+          headers: {},
+          ip: '',
+        } as any);
+      } catch {}
+      return subRes.data as {
+        id: string;
+        company_id: string | null;
+        plan_id: string | null;
+        status: string | null;
+        started_at: string | null;
+      };
+    }
+
+    // loga tentativa e espera com backoff
+    const delay = Math.min(500 * Math.pow(1.3, attempt - 1), 1000); // 500ms -> teto 1000ms
+    try {
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'retry-search',
+        body: { attempt, delay, efi_subscription_id: efiSubscriptionId },
+        headers: {},
+        ip: '',
+      } as any);
+    } catch {}
+
+    await sleep(delay);
+  }
+
+  // falhou todas as tentativas
+  try {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'retry-giveup',
+      body: { efi_subscription_id: efiSubscriptionId, attempts: maxAttempts },
+      headers: {},
+      ip: '',
+    } as any);
+  } catch {}
+  return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -178,7 +254,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const arr: any[] = (resp && (resp.data ?? resp)) || [];
         resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
 
-        // log detalhado da resolução
         await supabaseAdmin.from('payment_webhook_log').insert({
           provider: 'efi',
           received_at: new Date().toISOString(),
@@ -258,20 +333,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, skipped: 'no-subscription-id' });
   }
 
-  // 5) carrega subscription local e aplica regras
-  const { data: sub, error: subErr } = await supabaseAdmin
-    .from('subscriptions')
-    .select('id, company_id, plan_id, status, started_at')
-    .eq('efi_subscription_id', String(subscriptionId))
-    .single();
-
-  if (subErr || !sub) {
-    appendFile({ ...base, type: 'db-miss', reason: 'subscription-not-found', efi_subscription_id: subscriptionId });
+  // 5) carrega subscription local — com RETRY para evitar corrida
+  const sub = await findSubscriptionWithRetry(String(subscriptionId), 8);
+  if (!sub) {
+    appendFile({ ...base, type: 'db-miss', reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId });
     await supabaseAdmin.from('payment_webhook_log').insert({
       provider: 'efi',
       received_at: new Date().toISOString(),
       event_type: 'db-miss',
-      body: { reason: 'subscription-not-found', efi_subscription_id: subscriptionId },
+      body: { reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId },
       headers: base.headers,
       ip: String(base.ip || ''),
     } as any);
