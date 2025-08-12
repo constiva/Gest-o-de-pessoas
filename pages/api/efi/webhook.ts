@@ -127,14 +127,14 @@ async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts 
       .from('subscriptions')
       .select('id, company_id, plan_id, status, started_at')
       .eq('efi_subscription_id', efiSubscriptionId)
-      .single();
+      .maybeSingle();
 
-    if ((subRes.error || !subRes.data) && /^\d+$/.test(efiSubscriptionId)) {
+    if ((!subRes.data) && /^\d+$/.test(efiSubscriptionId)) {
       subRes = await supabaseAdmin
         .from('subscriptions')
         .select('id, company_id, plan_id, status, started_at')
         .eq('efi_subscription_id', Number(efiSubscriptionId))
-        .single();
+        .maybeSingle();
     }
 
     if (subRes.data) return subRes.data as {
@@ -162,13 +162,17 @@ async function detailCharge(api: any, id: string | number): Promise<any | null> 
 }
 function extractAmountCentsFromCharge(obj: any): number {
   if (!obj) return 0;
-  // tentativas comuns de campos
   const candidates = [
     obj.total, obj.value, obj.amount, obj.amount_total,
     obj?.payment?.amount, obj?.charge?.total, obj?.charge?.amount, obj?.billing?.amount
   ];
   for (const c of candidates) { const n = Number(c); if (Number.isFinite(n) && n >= 0) return Math.round(n); }
   return 0;
+}
+async function getPlanPriceCents(plan_id: string | null): Promise<number> {
+  if (!plan_id) return 0;
+  const { data } = await supabaseAdmin.from('plans').select('price_cents').eq('id', plan_id).maybeSingle();
+  return Number(data?.price_cents ?? 0) || 0;
 }
 
 // ---------- Upsert de transaction (waiting/paid) ----------
@@ -187,7 +191,125 @@ async function upsertTransaction({
     status, amount_cents, currency,
     updated_at: new Date().toISOString(),
   };
-  await supabaseAdmin.from('transactions').upsert(payload, { onConflict: 'efi_charge_id' });
+
+  if (payload.efi_charge_id) {
+    // Conflito por efi_charge_id (único por cobrança)
+    await supabaseAdmin.from('transactions').upsert(payload, { onConflict: 'efi_charge_id' });
+  } else {
+    // Sem charge_id: evita duplicar criando uma “sentinela” por dia
+    const { data: already } = await supabaseAdmin
+      .from('transactions')
+      .select('id')
+      .eq('subscription_id', subscription_id)
+      .eq('status', status)
+      .gte('created_at', new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString())
+      .limit(1);
+
+    if (!already?.length) {
+      await supabaseAdmin.from('transactions').insert(payload);
+    }
+  }
+}
+
+// ---------- Auto-create/Auto-update de subscription ----------
+async function ensureLocalSubscription(opts: {
+  subscriptionId: string;
+  customFromEvent?: string | null;
+  baseHeaders: any;
+}) {
+  const { subscriptionId, customFromEvent, baseHeaders } = opts;
+
+  const api = await makeEfiApi();
+  if (!api) return null;
+
+  const detail = await detailSubscription(api, subscriptionId);
+  const custom = (detail?.metadata?.custom_id ?? customFromEvent) || null;
+  if (!custom) return null;
+
+  const parsed = parseCustomId(custom);
+  let companyId = parsed.companyId;
+  let planId: string | null = null;
+
+  if (parsed.planSlug) {
+    const { data: planRow } = await supabaseAdmin
+      .from('plans')
+      .select('id')
+      .eq('slug', parsed.planSlug)
+      .maybeSingle();
+    planId = planRow?.id ?? null;
+  }
+  if (!companyId) return null;
+
+  // 1) tenta inserir
+  const ins = await supabaseAdmin
+    .from('subscriptions')
+    .insert({
+      company_id: companyId,
+      plan_id: planId,
+      efi_subscription_id: Number(subscriptionId),
+      status: 'waiting',
+      started_at: null,
+      updated_at: new Date().toISOString(),
+    } as any)
+    .select('id, company_id, plan_id, status, started_at')
+    .maybeSingle();
+
+  if (ins.data) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
+      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return ins.data;
+  }
+
+  // 2) se falhou (ex.: violação de unique por company), tenta reaproveitar uma linha existente da empresa
+  const { data: anySubOfCompany } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, company_id, plan_id, status, started_at')
+    .eq('company_id', companyId)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  if (anySubOfCompany && anySubOfCompany.length) {
+    const chosen = anySubOfCompany[0];
+    // Atualiza essa linha para representar a nova assinatura
+    const upd = await supabaseAdmin
+      .from('subscriptions')
+      .update({
+        plan_id: planId ?? chosen.plan_id,
+        efi_subscription_id: Number(subscriptionId),
+        status: 'waiting',
+        started_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', chosen.id)
+      .select('id, company_id, plan_id, status, started_at')
+      .maybeSingle();
+
+    if (upd.data) {
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'autoupdate-sub',
+        body: { subscription_id: subscriptionId, reused_id: chosen.id, company_id: companyId, plan_id: planId ?? chosen.plan_id },
+        headers: baseHeaders, ip: '',
+      } as any);
+      return upd.data;
+    }
+
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autoupdate-error',
+      body: { subscription_id: subscriptionId, error: ins.error?.message },
+      headers: baseHeaders, ip: '',
+    } as any);
+  } else {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+      body: { subscription_id: subscriptionId, error: ins.error?.message },
+      headers: baseHeaders, ip: '',
+    } as any);
+  }
+
+  return null;
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -299,7 +421,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 4) aplica o último evento
   const last = resolved[resolved.length - 1];
-  const subscriptionId = last.subscription_id;
+  const subscriptionId = last.subscription_id!;
   const chargeId = last.charge_id;
   const status = last.status;
   const customFromEvent = last.custom_id || null;
@@ -315,61 +437,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 5) carrega subscription local — com RETRY
   let sub = await findSubscriptionWithRetry(String(subscriptionId), 10);
 
-  // 5.1 Auto-healing: se não achou, tenta detalhar assinatura na Efí para construir a linha local
+  // 5.1 Auto-healing: se não achou, tenta criar/atualizar por company via custom_id
   if (!sub) {
-    const api = await makeEfiApi();
-    let customFromDetail: string | null = null;
-    if (api) {
-      const detail = await detailSubscription(api, subscriptionId);
-      customFromDetail = detail?.metadata?.custom_id ?? null;
-      if (customFromDetail) {
-        const parsed = parseCustomId(customFromDetail);
-        let companyId = parsed.companyId;
-        let planId: string | null = null;
-
-        if (!companyId && customFromEvent) companyId = parseCustomId(customFromEvent).companyId;
-
-        if (parsed.planSlug) {
-          const { data: planRow } = await supabaseAdmin
-            .from('plans')
-            .select('id')
-            .eq('slug', parsed.planSlug)
-            .single();
-          planId = planRow?.id ?? null;
-        }
-
-        if (companyId) {
-          // cria a subscription mínima como waiting
-          const ins = await supabaseAdmin
-            .from('subscriptions')
-            .insert({
-              company_id: companyId,
-              plan_id: planId,
-              efi_subscription_id: Number(subscriptionId),
-              status: 'waiting',
-              started_at: null,
-              updated_at: new Date().toISOString(),
-            } as any)
-            .select('id, company_id, plan_id, status, started_at')
-            .single();
-
-          if (!ins.error && ins.data) {
-            sub = ins.data as any;
-            await supabaseAdmin.from('payment_webhook_log').insert({
-              provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
-              body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
-              headers: base.headers, ip: String(base.ip || ''),
-            } as any);
-          } else {
-            await supabaseAdmin.from('payment_webhook_log').insert({
-              provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
-              body: { subscription_id: subscriptionId, error: ins.error?.message },
-              headers: base.headers, ip: String(base.ip || ''),
-            } as any);
-          }
-        }
-      }
-    }
+    sub = await ensureLocalSubscription({
+      subscriptionId: String(subscriptionId),
+      customFromEvent,
+      baseHeaders: base.headers,
+    });
   }
 
   if (!sub) {
@@ -386,23 +460,57 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const isCanceled = ['canceled', 'cancelled'].includes(status);
 
   try {
-    // 6) Transação (registrar waiting/paid) — tenta pegar valor via detailCharge
+    // 6) Transação (registrar waiting/paid)
     let amountCents = 0;
+
     if (chargeId) {
       const api = await makeEfiApi();
       if (api) {
         const ch = await detailCharge(api, chargeId);
         amountCents = extractAmountCentsFromCharge(ch);
       }
+      if (!amountCents) amountCents = await getPlanPriceCents(sub.plan_id);
+
       await upsertTransaction({
         company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
         efi_subscription_id: subscriptionId, efi_charge_id: chargeId,
         status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
         amount_cents: amountCents,
       });
+
       await supabaseAdmin.from('subscriptions')
         .update({ last_charge_id: Number(chargeId), updated_at: new Date().toISOString() })
         .eq('id', sub.id);
+
+    } else {
+      // Evento sem charge_id: tenta descobrir o último charge pela assinatura
+      const api = await makeEfiApi();
+      if (api) {
+        const det = await detailSubscription(api, subscriptionId);
+        const lastCharge = Array.isArray(det?.charges) && det.charges.length ? det.charges[det.charges.length - 1] : null;
+        const lastChargeId = lastCharge?.charge_id ?? lastCharge?.id ?? null;
+        if (lastChargeId) {
+          amountCents = extractAmountCentsFromCharge(lastCharge) || await getPlanPriceCents(sub.plan_id);
+          await upsertTransaction({
+            company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
+            efi_subscription_id: subscriptionId, efi_charge_id: lastChargeId,
+            status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
+            amount_cents: amountCents,
+          });
+          await supabaseAdmin.from('subscriptions')
+            .update({ last_charge_id: Number(lastChargeId), updated_at: new Date().toISOString() })
+            .eq('id', sub.id);
+        } else if (isPaid || status === 'waiting') {
+          // cria registro “sem charge” (sentinela) para histórico
+          amountCents = await getPlanPriceCents(sub.plan_id);
+          await upsertTransaction({
+            company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
+            efi_subscription_id: subscriptionId, efi_charge_id: null,
+            status: isPaid ? 'paid' : 'waiting',
+            amount_cents: amountCents,
+          });
+        }
+      }
     }
 
     // 7) Atualiza status da assinatura e empresa
@@ -418,7 +526,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           .from('plans')
           .select('slug, max_employees')
           .eq('id', sub.plan_id)
-          .single();
+          .maybeSingle();
 
         if (sub.company_id && planRow) {
           await supabaseAdmin.from('companies').update({
