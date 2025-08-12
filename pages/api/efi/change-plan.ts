@@ -143,6 +143,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(400).json({ stage, error: 'Plano não encontrado na base.' });
     }
     const planName = (planRow as any).name || (planRow as any).slug || 'Plano';
+    const planSlug = (planRow as any).slug as string;
     const planCurrency = (planRow as any).currency || 'BRL';
     const planPriceCents = Number((planRow as any).price_cents ?? 0) || 0;
 
@@ -187,15 +188,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!Number.isFinite(valueCents) || valueCents <= 0) {
       return res.status(400).json({ stage, error: 'Valor do plano inválido (price_cents).' });
     }
+
+    // Sempre envie custom_id e notification_url (fallback pelo .env)
+    const customId = sanitizeCustomId(`company:${company_id}|plan:${planSlug}`);
+    const webhookUrlFromEnv = process.env.EFI_WEBHOOK_URL && isHttps(process.env.EFI_WEBHOOK_URL)
+      ? String(process.env.EFI_WEBHOOK_URL)
+      : undefined;
+
     const subParams = { id: Number(efiPlanId) };
     const subBody: any = {
       items: [{ name: item?.name || planName, value: valueCents, amount }],
+      metadata: {
+        custom_id: customId,
+        ...(metadata?.custom_id ? { custom_id: sanitizeCustomId(String(metadata.custom_id)) } : {}),
+        ...(metadata?.notification_url && isHttps(metadata.notification_url)
+          ? { notification_url: String(metadata.notification_url) }
+          : webhookUrlFromEnv ? { notification_url: webhookUrlFromEnv } : {}),
+      },
     };
-    if (metadata?.custom_id || metadata?.notification_url) {
-      subBody.metadata = {};
-      if (metadata?.custom_id) subBody.metadata.custom_id = sanitizeCustomId(String(metadata.custom_id));
-      if (isHttps(metadata?.notification_url)) subBody.metadata.notification_url = String(metadata.notification_url);
-    }
+
     const createdSub = await (api as any).createSubscription(subParams, subBody);
     const newSubscriptionId: number = createdSub?.data?.subscription_id ?? createdSub?.subscription_id;
     if (!newSubscriptionId) {
@@ -217,18 +228,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       .select('id')
       .single();
 
-    // Se der conflito aqui por qualquer motivo, seguimos (o webhook possui retry)
     if (insertLocal.error) {
-      // log leve em tabela de log (se você tiver)
-      try {
-        await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi',
-          received_at: new Date().toISOString(),
-          event_type: 'insert-local-sub-error',
-          body: { message: insertLocal.error.message, company_id, plan_id, newSubscriptionId },
-          headers: {}, ip: '',
-        } as any);
-      } catch {}
+      // Se der conflito, tenta localizar a row (pode ter sido criada por corrida do webhook)
+      const { data: maybeRow } = await supabaseAdmin
+        .from('subscriptions')
+        .select('id')
+        .eq('efi_subscription_id', newSubscriptionId)
+        .maybeSingle();
+
+      if (!maybeRow) {
+        // Logar o erro para diagnóstico
+        try {
+          await supabaseAdmin.from('payment_webhook_log').insert({
+            provider: 'efi',
+            received_at: new Date().toISOString(),
+            event_type: 'insert-local-sub-error',
+            body: { message: insertLocal.error.message, company_id, plan_id, newSubscriptionId },
+            headers: {}, ip: '',
+          } as any);
+        } catch {}
+      }
     }
 
     // 6) Define método de pagamento (cobrança agora)
