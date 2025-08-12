@@ -6,48 +6,80 @@ import { supabase } from '../../../lib/supabaseClient';
 
 const WEBHOOK_LOG =
   process.env.NODE_ENV === 'production'
-    ? '/tmp/webhook.txt'
-    : path.join(process.cwd(), 'webhook.txt');
+    ? '/tmp/webhook.txt'                          // Vercel: só /tmp é gravável
+    : path.join(process.cwd(), 'webhook.txt');    // Dev: cria na raiz do projeto
 
 function ensureLogFile() {
-  try { if (!fs.existsSync(WEBHOOK_LOG)) fs.writeFileSync(WEBHOOK_LOG, ''); } catch {}
+  try {
+    if (!fs.existsSync(WEBHOOK_LOG)) fs.writeFileSync(WEBHOOK_LOG, '');
+  } catch {}
 }
-function appendFile(entry: any) {
+function appendLog(entry: any) {
   try {
     ensureLogFile();
     fs.appendFileSync(WEBHOOK_LOG, JSON.stringify(entry) + '\n');
   } catch {}
 }
-function readFileLog(): string {
-  try { ensureLogFile(); return fs.readFileSync(WEBHOOK_LOG, 'utf8'); } catch { return ''; }
+function readLog(): string {
+  try {
+    ensureLogFile();
+    return fs.readFileSync(WEBHOOK_LOG, 'utf8');
+  } catch {
+    return '';
+  }
 }
-function clearFile() { try { fs.writeFileSync(WEBHOOK_LOG, ''); } catch {} }
-
-function norm(s?: string | null) { return String(s || '').toLowerCase(); }
+function clearLog() {
+  try { fs.writeFileSync(WEBHOOK_LOG, ''); } catch {}
+}
+const norm = (s?: string | null) => String(s ?? '').toLowerCase();
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  // token simples via query
+  // ————— auth simples por token —————
   const allowed = (process.env.EFI_WEBHOOK_TOKEN || '')
     .split(',').map(s => s.trim()).filter(Boolean);
+
+  // aceita ?t=... OU headers
   const q = req.query.t;
-  const token = Array.isArray(q) ? q[0] : q;
+  const tokenQs = Array.isArray(q) ? q[0] : q;
+  const headerToken =
+    (req.headers['x-webhook-token'] as string) ||
+    (req.headers['x-efi-token'] as string) ||
+    (req.headers['authorization']?.toString().replace(/^Bearer\s+/i, '') ?? '');
+  const token = tokenQs || headerToken;
 
   if (!token || !allowed.includes(token)) {
-    appendFile({ ts: new Date().toISOString(), type: 'reject', reason: 'invalid-token',
-      ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress });
+    appendLog({
+      ts: new Date().toISOString(),
+      type: 'reject',
+      reason: 'invalid-token',
+      ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress
+    });
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(401).json({ ok: false, error: 'invalid token' });
   }
 
-  // utilitários GET
+  // ————— utilitários GET (debug) —————
   if (req.method === 'GET') {
-    if ('clear' in req.query) { clearFile(); return res.status(200).json({ ok: true, cleared: true, file: WEBHOOK_LOG }); }
-    if ('dump' in req.query) { res.setHeader('Content-Type', 'text/plain; charset=utf-8'); return res.status(200).send(readFileLog() || '(vazio)'); }
+    if ('clear' in req.query) {
+      clearLog();
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(200).json({ ok: true, cleared: true, file: WEBHOOK_LOG });
+    }
+    if ('dump' in req.query) {
+      res.setHeader('Cache-Control', 'no-store');
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      return res.status(200).send(readLog() || '(vazio)');
+    }
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ok: true, file: WEBHOOK_LOG, hint: 'use ?dump=1 ou ?clear=1' });
   }
 
-  if (req.method !== 'POST') return res.status(405).end();
+  if (req.method !== 'POST') {
+    res.setHeader('Cache-Control', 'no-store');
+    return res.status(405).end();
+  }
 
-  // corpo
+  // ————— parse body recebido da Efí —————
   const body: any = req.body || {};
   const subscriptionId =
     body?.subscription_id ?? body?.subscription?.id ?? body?.data?.subscription_id ?? null;
@@ -60,33 +92,41 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const entryBase = {
     ts: new Date().toISOString(),
     ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
-    headers: { 'user-agent': req.headers['user-agent'], 'content-type': req.headers['content-type'] },
+    headers: {
+      'user-agent': req.headers['user-agent'],
+      'content-type': req.headers['content-type']
+    },
   };
 
-  // log em arquivo
-  appendFile({ ...entryBase, type: 'incoming', parsed: { subscriptionId, chargeId, status }, bodyKeys: Object.keys(body || {}) });
+  appendLog({
+    ...entryBase,
+    type: 'incoming',
+    parsed: { subscriptionId, chargeId, status },
+    bodyKeys: Object.keys(body || {})
+  });
 
-  // log em tabela payment_webhook (auditoria)
+  // ————— auditoria em tabela payment_webhook —————
   try {
     await supabase.from('payment_webhook').insert({
       provider: 'efi',
       received_at: new Date().toISOString(),
       event_type: status || 'unknown',
-      body,
-      headers: entryBase.headers,
+      body,                    // JSONB
+      headers: entryBase.headers, // JSONB
       ip: String(entryBase.ip || ''),
     } as any);
   } catch (e) {
-    appendFile({ ...entryBase, type: 'db-log-error', message: (e as any)?.message || String(e) });
+    appendLog({ ...entryBase, type: 'db-log-error', message: (e as any)?.message || String(e) });
   }
 
-  // precisamos da assinatura
+  // ————— se não tem assinatura, só armazena o evento —————
   if (!subscriptionId) {
-    appendFile({ ...entryBase, type: 'skip', reason: 'no-subscription-id' });
+    appendLog({ ...entryBase, type: 'skip', reason: 'no-subscription-id' });
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ok: true, skipped: 'no-subscription-id' });
   }
 
-  // busca assinatura local
+  // ————— busca assinatura local —————
   const { data: sub, error: subErr } = await supabase
     .from('subscriptions')
     .select('id, company_id, plan_id, status')
@@ -94,17 +134,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     .single();
 
   if (subErr || !sub) {
-    appendFile({ ...entryBase, type: 'db-miss', reason: 'subscription-not-found', efi_subscription_id: subscriptionId });
+    appendLog({ ...entryBase, type: 'db-miss', reason: 'subscription-not-found', efi_subscription_id: subscriptionId });
+    res.setHeader('Cache-Control', 'no-store');
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  // regras por status
+  // ————— regras por status —————
   const isPaid = status === 'paid' || status === 'active';
   const isFailed = ['unpaid', 'failed', 'charge_failed'].includes(status);
   const isCanceled = ['canceled', 'cancelled'].includes(status);
 
   try {
-    // atualiza transação se veio chargeId
+    // grava/atualiza transação (se a Efí mandou chargeId)
     if (chargeId) {
       await supabase.from('transactions').upsert({
         efi_charge_id: chargeId,
@@ -112,18 +153,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
         updated_at: new Date().toISOString(),
       } as any);
-      await supabase.from('subscriptions').update({ last_charge_id: chargeId }).eq('id', sub.id);
+      await supabase.from('subscriptions')
+        .update({ last_charge_id: chargeId })
+        .eq('id', sub.id);
     }
 
-    // atualiza status da subscription
     if (isPaid) {
+      // ativa assinatura
       await supabase.from('subscriptions').update({
         status: 'active',
         started_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
-      // promove empresa: pega plano para limites/slug
+      // lê plano e promove empresa
       const { data: planRow } = await supabase
         .from('plans')
         .select('slug, max_employees')
@@ -137,43 +180,40 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }).eq('id', sub.company_id);
       }
 
-      appendFile({ ...entryBase, type: 'db-update', action: 'activate', company_id: sub.company_id, plan_id: sub.plan_id, chargeId, subscriptionId });
-    }
-    else if (isFailed) {
+      appendLog({ ...entryBase, type: 'db-update', action: 'activate', company_id: sub.company_id, plan_id: sub.plan_id, chargeId, subscriptionId });
+    } else if (isFailed) {
       await supabase.from('subscriptions').update({
         status: 'overdue',
         updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
-      appendFile({ ...entryBase, type: 'db-update', action: 'overdue', subscriptionId, chargeId });
-    }
-    else if (isCanceled) {
+      appendLog({ ...entryBase, type: 'db-update', action: 'overdue', subscriptionId, chargeId });
+    } else if (isCanceled) {
       await supabase.from('subscriptions').update({
         status: 'canceled',
         canceled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
-      // rebaixa empresa (ex.: free) — ajuste o slug/limite se quiser outro
+      // rebaixa empresa (ajuste se quiser outra política)
       if (sub.company_id) {
         await supabase.from('companies').update({
           plan: 'free',
-          maxemployees: 3, // exemplo
+          maxemployees: 3,
         }).eq('id', sub.company_id);
       }
 
-      appendFile({ ...entryBase, type: 'db-update', action: 'canceled', subscriptionId });
-    }
-    else {
-      // estados neutros
-      appendFile({ ...entryBase, type: 'no-op', status });
+      appendLog({ ...entryBase, type: 'db-update', action: 'canceled', subscriptionId });
+    } else {
+      appendLog({ ...entryBase, type: 'no-op', status });
     }
   } catch (e) {
-    appendFile({ ...entryBase, type: 'db-error', message: (e as any)?.message || String(e) });
+    appendLog({ ...entryBase, type: 'db-error', message: (e as any)?.message || String(e) });
   }
 
   const response = { ok: true };
-  appendFile({ ...entryBase, type: 'response', response });
+  appendLog({ ...entryBase, type: 'response', response });
 
-  res.status(200).json(response);
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(200).json(response);
 }
