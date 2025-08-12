@@ -134,7 +134,7 @@ function sanitizeCustomId(input: string, maxLen = 64) {
   return input
     .normalize('NFKD')
     .replace(/[^\w\- ]+/g, '-')  // mantém letras/números/_/espaço/hífen; remove o resto
-    .replace(/\s+/g, '-')        // espaço -> hífen (opcional, só pra evitar whitespace)
+    .replace(/\s+/g, '-')        // espaço -> hífen
     .replace(/-+/g, '-')         // múltiplos hífens -> um
     .replace(/^-|-$/g, '')       // trim de hífen
     .slice(0, maxLen);
@@ -240,7 +240,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(500).json({
         error: 'Credenciais da Efí incompletas no servidor.',
         stage,
-        hint: 'Preencha EFI_CLIENT_ID e EFI_CLIENT_SECRET no .env.local e reinicie.',
+        hint: 'Preencha EFI_CLIENT_ID e EFI_CLIENT_SECRET no .env local/Projeto.',
       });
     }
     if (!certificate) {
@@ -310,6 +310,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!Number.isFinite(itemValue) || itemValue <= 0) throw new Error('item[value] inválido');
     if (!Number.isFinite(itemAmount) || itemAmount < 1) throw new Error('item[amount] inválido');
 
+    // --------- MONTA notification_url (servidor) + custom_id seguro ----------
+    const baseFromEnv =
+      (process.env.NEXT_PUBLIC_WEBHOOK_BASE_URL || '').trim() ||
+      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+
+    const webhookToken = (process.env.EFI_WEBHOOK_TOKEN || '').split(',')
+      .map(s => s.trim()).find(Boolean);
+
+    let serverNotificationUrl: string | null = null;
+    if (baseFromEnv && isHttps(baseFromEnv) && webhookToken) {
+      serverNotificationUrl = `${baseFromEnv.replace(/\/$/, '')}/api/efi/webhooks?t=${encodeURIComponent(webhookToken)}`;
+    }
+
+    const customRaw =
+      (metadata?.custom_id ? String(metadata.custom_id) : `${company_id}-${plan_slug}`);
+    const customSafe = sanitizeCustomId(customRaw);
+
     log('Payload (resumo):', {
       plan_uuid: mask(plan_uuid),
       plan_slug,
@@ -317,8 +334,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       efi_plan_id: efi_plan_id ?? '(novo)',
       item: { name: item.name, value: itemValue, amount: itemAmount },
       meta: {
-        custom_id: metadata?.custom_id ? mask(String(metadata.custom_id), 6) : '(vazio)',
-        notify: metadata?.notification_url || '(vazio)',
+        custom_id: mask(customSafe, 6),
+        notify: serverNotificationUrl ? '(server-defined)' :
+               (metadata?.notification_url ? '(client-provided)' : '(vazio)'),
       },
       customer: { name: customer.name, email: customer.email },
     });
@@ -388,20 +406,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const subsParams = { id: Number(planId) };
     const subsBody: any = {
       items: [{ name: item.name, value: itemValue, amount: itemAmount }],
+      metadata: { custom_id: customSafe },
     };
-    if (metadata?.custom_id || metadata?.notification_url) {
-      subsBody.metadata = {};
-      if (metadata.custom_id) {
-        const raw = String(metadata.custom_id);
-        const safe = sanitizeCustomId(raw); // remove ":" e demais caracteres inválidos
-        subsBody.metadata.custom_id = safe;
-      }
-      if (isHttps(metadata.notification_url)) {
-        subsBody.metadata.notification_url = String(metadata.notification_url);
-      } else if (metadata?.notification_url) {
-        log('[SUB] ignorando notification_url não-HTTPS:', metadata.notification_url);
-      }
+
+    if (serverNotificationUrl) {
+      subsBody.metadata.notification_url = serverNotificationUrl;
+    } else if (isHttps(metadata?.notification_url)) {
+      // fallback: só aceita HTTPS vindo do client se env não definiu
+      subsBody.metadata.notification_url = String(metadata.notification_url);
+    } else if (metadata?.notification_url) {
+      log('[SUB] ignorando notification_url não-HTTPS (client):', metadata.notification_url);
     }
+
     log('[SUB] createSubscription params/body:', subsParams, subsBody);
 
     let subscription_id: number;
