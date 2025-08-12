@@ -30,6 +30,7 @@ function resolveCertPath(input?: string): string | null {
   if (!path.isAbsolute(p)) p = path.join(process.cwd(), p);
   return p;
 }
+
 async function getEfiSdk(): Promise<{ EfiPay: any; pkg: string }> {
   try {
     const mod = await import('sdk-node-apis-efi');
@@ -43,6 +44,7 @@ async function getEfiSdk(): Promise<{ EfiPay: any; pkg: string }> {
     }
   }
 }
+
 async function makeEfiApi() {
   const sandbox = String(process.env.EFI_SANDBOX).toLowerCase() === 'true';
   const clean = (v?: string) => (v ?? '').replace(/[\r\n]/g, '').trim();
@@ -67,7 +69,28 @@ async function makeEfiApi() {
   return new (EfiPay as any)(options);
 }
 
-// Normaliza itens vindos do getNotification
+// --- extrai status mesmo quando vier como objeto ({ current: 'paid' } etc.)
+function extractStatus(input: any): string {
+  if (!input) return '';
+  if (typeof input === 'string') return norm(input);
+  if (Array.isArray(input) && input.length) return extractStatus(input[input.length - 1]);
+  if (typeof input === 'object') {
+    const candidate =
+      input.current ??
+      input.status ??
+      input.situation ??
+      input.value ??
+      input.label ??
+      input.descricao ??
+      input.event ??
+      input.name ??
+      null;
+    if (typeof candidate === 'string') return norm(candidate);
+  }
+  return '';
+}
+
+// Normaliza itens vindos do getNotification ou do próprio body
 function pickEventFields(obj: any) {
   const subId =
     obj?.subscription_id ??
@@ -88,18 +111,24 @@ function pickEventFields(obj: any) {
     obj?.situation ??
     obj?.event ??
     obj?.data?.status ??
+    obj?.charge?.status ??
+    obj?.subscription?.status ??
     null;
+
+  const status = extractStatus(statusRaw);
 
   return {
     subscription_id: subId ? String(subId) : null,
     charge_id: chargeId ? String(chargeId) : null,
-    status: norm(statusRaw),
+    status,
+    __status_raw_type: typeof statusRaw,
+    __status_obj_keys: statusRaw && typeof statusRaw === 'object' ? Object.keys(statusRaw) : undefined,
   };
 }
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   // ============ GET utilitário (com token) ============
-  // Mantemos proteção por token SOMENTE para os utilitários de debug.
+  // Protegido só para debug (dump/clear)
   if (req.method === 'GET') {
     const allowed = (process.env.EFI_WEBHOOK_TOKEN || '')
       .split(',').map(s => s.trim()).filter(Boolean);
@@ -210,7 +239,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 6) Busca assinatura local
   const { data: sub, error: subErr } = await supabase
     .from('subscriptions')
-    .select('id, company_id, plan_id, status')
+    .select('id, company_id, plan_id, status, started_at')
     .eq('efi_subscription_id', String(subscriptionId))
     .single();
 
@@ -220,7 +249,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  // 7) Regras por status
+  // 7) Regras por status (inclui 'confirmed' para coberturas que retornam isso)
   const isPaid = status === 'paid' || status === 'active' || status === 'confirmed';
   const isFailed = ['unpaid', 'failed', 'charge_failed'].includes(status);
   const isCanceled = ['canceled', 'cancelled'].includes(status);
@@ -243,7 +272,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // ativa assinatura
       await supabase.from('subscriptions').update({
         status: 'active',
-        started_at: sub.status === 'active' ? sub['started_at'] : new Date().toISOString(),
+        started_at: sub.started_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
