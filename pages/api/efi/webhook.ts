@@ -58,15 +58,37 @@ function extractStatus(input: any): string {
   if (typeof input === 'string') return norm(input);
   if (Array.isArray(input) && input.length) return extractStatus(input[input.length - 1]);
   if (typeof input === 'object') {
-    const candidate = input.current ?? input.status ?? input.situation ?? input.value ?? input.label ?? input.descricao ?? input.event ?? input.name ?? null;
+    const candidate =
+      input.current ?? input.status ?? input.situation ?? input.value ??
+      input.label ?? input.descricao ?? input.event ?? input.name ?? null;
     if (typeof candidate === 'string') return norm(candidate);
   }
   return '';
 }
 function pickEventFields(obj: any) {
-  const subId = obj?.subscription_id ?? obj?.subscription?.id ?? obj?.identifiers?.subscription_id ?? obj?.data?.subscription_id ?? null;
-  const chargeId = obj?.charge_id ?? obj?.charge?.id ?? obj?.identifiers?.charge_id ?? obj?.data?.charge_id ?? null;
-  const statusRaw = obj?.status ?? obj?.situation ?? obj?.event ?? obj?.data?.status ?? obj?.charge?.status ?? obj?.subscription?.status ?? null;
+  const subId =
+    obj?.subscription_id ??
+    obj?.subscription?.id ??
+    obj?.identifiers?.subscription_id ??
+    obj?.data?.subscription_id ??
+    null;
+
+  const chargeId =
+    obj?.charge_id ??
+    obj?.charge?.id ??
+    obj?.identifiers?.charge_id ??
+    obj?.data?.charge_id ??
+    null;
+
+  const statusRaw =
+    obj?.status ??
+    obj?.situation ??
+    obj?.event ??
+    obj?.data?.status ??
+    obj?.charge?.status ??
+    obj?.subscription?.status ??
+    null;
+
   const status = extractStatus(statusRaw);
   return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status };
 }
@@ -83,7 +105,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     if ('clear' in req.query) { clearFile(); return res.status(200).json({ ok: true, cleared: true, file: WEBHOOK_LOG }); }
 
-    // dump pela base (preferível em produção)
     if (String(req.query.dump || '') === 'db') {
       const { data, error } = await supabaseAdmin
         .from('payment_webhook_log')
@@ -94,7 +115,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(200).json({ ok: true, from: 'db', rows: data?.length || 0, data });
     }
 
-    // dump por arquivo (útil em dev)
     if ('dump' in req.query) {
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       return res.status(200).send(readFileLog() || '(vazio)');
@@ -112,6 +132,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     headers: { 'user-agent': req.headers['user-agent'], 'content-type': req.headers['content-type'] },
   };
   appendFile({ ...base, type: 'incoming', bodyKeys: Object.keys(body || {}) });
+
+  // 0) log de ambiente (ajuda a diagnosticar por que não resolve)
+  try {
+    const envHave = {
+      sandbox: String(process.env.EFI_SANDBOX || '').length > 0,
+      clientId: !!process.env.EFI_CLIENT_ID,
+      clientSecret: !!process.env.EFI_CLIENT_SECRET,
+      certPath: !!process.env.EFI_CERT_PATH,
+      certB64: !!process.env.EFI_CERT_PEM_BASE64,
+    };
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'env-check',
+      body: envHave,
+      headers: base.headers,
+      ip: String(base.ip || ''),
+    } as any);
+  } catch {}
 
   // 1) auditoria bruta
   try {
@@ -138,12 +177,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const resp = await api.getNotification({ token: tokenNotif });
         const arr: any[] = (resp && (resp.data ?? resp)) || [];
         resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
+
+        // log detalhado da resolução
+        await supabaseAdmin.from('payment_webhook_log').insert({
+          provider: 'efi',
+          received_at: new Date().toISOString(),
+          event_type: 'resolved',
+          body: { token: tokenNotif, count: resolved.length, raw_len: Array.isArray(arr) ? arr.length : 0 },
+          headers: base.headers,
+          ip: String(base.ip || ''),
+        } as any);
+
         appendFile({ ...base, type: 'resolved-notification', count: resolved.length });
       } else {
         appendFile({ ...base, type: 'resolve-skip', reason: 'missing-sdk-or-creds' });
+        await supabaseAdmin.from('payment_webhook_log').insert({
+          provider: 'efi',
+          received_at: new Date().toISOString(),
+          event_type: 'resolve-skip',
+          body: { reason: 'missing-sdk-or-creds' },
+          headers: base.headers,
+          ip: String(base.ip || ''),
+        } as any);
       }
     } catch (e: any) {
       appendFile({ ...base, type: 'resolve-error', message: e?.message || String(e) });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'resolve-error',
+        body: { message: e?.message || String(e) },
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     }
   }
 
@@ -153,6 +219,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fallback.subscription_id || fallback.charge_id || fallback.status) {
       resolved.push(fallback);
       appendFile({ ...base, type: 'fallback-parse', parsed: fallback });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'fallback-parse',
+        body: fallback,
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     }
   }
 
@@ -166,7 +240,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const subscriptionId = last.subscription_id;
   const chargeId = last.charge_id;
   const status = last.status;
+
   appendFile({ ...base, type: 'normalized', parsed: { subscriptionId, chargeId, status } });
+  try {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'normalized',
+      body: { subscription_id: subscriptionId, charge_id: chargeId, status },
+      headers: base.headers,
+      ip: String(base.ip || ''),
+    } as any);
+  } catch {}
 
   if (!subscriptionId) {
     appendFile({ ...base, type: 'skip', reason: 'no-subscription-id-after-resolve' });
@@ -182,6 +267,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (subErr || !sub) {
     appendFile({ ...base, type: 'db-miss', reason: 'subscription-not-found', efi_subscription_id: subscriptionId });
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'db-miss',
+      body: { reason: 'subscription-not-found', efi_subscription_id: subscriptionId },
+      headers: base.headers,
+      ip: String(base.ip || ''),
+    } as any);
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
@@ -224,12 +317,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }
 
       appendFile({ ...base, type: 'db-update', action: 'activate', company_id: sub.company_id, plan_id: sub.plan_id, chargeId, subscriptionId });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'db-update',
+        body: { action: 'activate', subscription_id: subscriptionId, charge_id: chargeId, company_id: sub.company_id, plan_id: sub.plan_id },
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     } else if (isFailed) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'overdue',
         updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
+
       appendFile({ ...base, type: 'db-update', action: 'overdue', subscriptionId, chargeId });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'db-update',
+        body: { action: 'overdue', subscription_id: subscriptionId, charge_id: chargeId },
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     } else if (isCanceled) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'canceled',
@@ -243,12 +353,37 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           maxemployees: 3,
         }).eq('id', sub.company_id);
       }
+
       appendFile({ ...base, type: 'db-update', action: 'canceled', subscriptionId });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'db-update',
+        body: { action: 'canceled', subscription_id: subscriptionId },
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     } else {
       appendFile({ ...base, type: 'no-op', status });
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'no-op',
+        body: { status },
+        headers: base.headers,
+        ip: String(base.ip || ''),
+      } as any);
     }
   } catch (e) {
     appendFile({ ...base, type: 'db-error', message: (e as any)?.message || String(e) });
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'db-error',
+      body: { message: (e as any)?.message || String(e) },
+      headers: base.headers,
+      ip: String(base.ip || ''),
+    } as any);
   }
 
   return res.status(200).json({ ok: true });
