@@ -304,7 +304,7 @@ export default function Checkout() {
       // notification_url só em https
       const notificationUrl =
         typeof window !== 'undefined' && window.location.protocol === 'https:'
-          ? `${window.location.origin}/api/webhooks/efi`
+          ? `${window.location.origin}/api/efi/webhook`
           : undefined;
 
       const payload = {
