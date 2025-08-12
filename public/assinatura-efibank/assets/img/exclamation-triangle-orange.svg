@@ -1,0 +1,6 @@
+<svg id="exclamation-triangle" xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+  <rect id="canvas" width="20" height="20" fill="none"/>
+  <path id="Caminho_19000" data-name="Caminho 19000" d="M649.494,247a.5.5,0,0,1,1,0v6a.5.5,0,0,1-1,0Z" transform="translate(-639.994 -240)" fill="#f39c12"/>
+  <path id="Caminho_19001" data-name="Caminho 19001" d="M649.994,254.5a.5.5,0,0,0-.5.5v1a.5.5,0,0,0,1,0v-1A.5.5,0,0,0,649.994,254.5Z" transform="translate(-639.994 -240)" fill="#f39c12"/>
+  <path id="Caminho_19002" data-name="Caminho 19002" d="M650.758,242.011a.827.827,0,0,0-1.529,0L640.594,257.1a.956.956,0,0,0,.4,1.293.943.943,0,0,0,.367.107H658.63a.958.958,0,0,0,.764-1.4Zm-.764.489-8.5,15h17Z" transform="translate(-639.994 -240)" fill="#f39c12" fill-rule="evenodd"/>
+</svg>
