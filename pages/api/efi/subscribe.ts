@@ -3,6 +3,7 @@ import type { NextApiRequest, NextApiResponse } from 'next';
 import fs from 'fs';
 import path from 'path';
 import util from 'util';
+import { supabase } from '../../../lib/supabaseClient';
 
 type Ok = { subscription_id: number; charge_id?: number; status?: string; stage: string };
 type Fail = { error: string; stage: string; hint?: string; details?: any };
@@ -23,14 +24,13 @@ const mask = (str?: string, keep = 3) => {
 };
 const log = (...args: any[]) => console.log('[EFI][API]', ...args);
 
-// ----------------- DEBUG CORE HTTP/HTTPS (independe de axios) -----------------
+// ----------------- DEBUG CORE HTTP/HTTPS -----------------
 let coreHttpPatched = false;
 function installCoreHttpDebug() {
   if (coreHttpPatched || process.env.EFI_DEBUG_HTTP !== '1') return;
   coreHttpPatched = true;
   const http = require('http');
   const https = require('https');
-
   const wrap = (mod: any, label: string) => {
     const origReq = mod.request;
     mod.request = function wrappedRequest(options: any, cb: any) {
@@ -42,13 +42,11 @@ function installCoreHttpDebug() {
         const headers = { ...(opts.headers || {}) };
         delete (headers as any).authorization;
         delete (headers as any).Authorization;
-
         console.log('[EFI][HTTP][REQ]', label, method, `${host}${path}`);
         console.log('[EFI][HTTP][REQ HEADERS]', headers);
       } catch (e) {
         console.log('[EFI][HTTP][WRAP ERR]', label, String(e));
       }
-
       const req = origReq.call(mod, options, (res: any) => {
         try {
           const status = res.statusCode;
@@ -57,27 +55,23 @@ function installCoreHttpDebug() {
         } catch {}
         if (cb) cb(res);
       });
-
       req.on('error', (err: any) => {
         console.error('[EFI][HTTP][ERR]', label, err?.code || err?.message || err);
       });
-
       return req;
     };
   };
-
   wrap(http, 'http');
   wrap(https, 'https');
 }
-// ------------------------------------------------------------------------------
+// ---------------------------------------------------------
 
-// ----------------- AXIOS DEBUG (se o SDK usar axios compartilhado) ------------
+// ----------------- AXIOS DEBUG ---------------------------
 let axiosDebugInstalled = false;
 async function installAxiosDebug() {
   if (axiosDebugInstalled || process.env.EFI_DEBUG_AXIOS !== '1') return;
   try {
     const axios = (await import('axios')).default;
-
     axios.interceptors.request.use((config) => {
       const full = (config.baseURL || '') + (config.url || '');
       if (/efipay\.com\.br/i.test(full)) {
@@ -93,7 +87,6 @@ async function installAxiosDebug() {
       console.error('[EFI][AXIOS][REQ ERR]', util.inspect(err, { depth: 6 }));
       return Promise.reject(err);
     });
-
     axios.interceptors.response.use((resp) => {
       const full = (resp.config.baseURL || '') + (resp.config.url || '');
       if (/efipay\.com\.br/i.test(full)) {
@@ -111,11 +104,10 @@ async function installAxiosDebug() {
       }
       return Promise.reject(err);
     });
-
     axiosDebugInstalled = true;
-  } catch { /* ok */ }
+  } catch {}
 }
-// ------------------------------------------------------------------------------
+// ---------------------------------------------------------
 
 // utils
 function resolveCertPath(input?: string): string | null {
@@ -129,14 +121,14 @@ const isHttps = (u?: string) => {
   try { return new URL(u).protocol === 'https:'; } catch { return false; }
 };
 
-// Permite somente [A-Za-z0-9 _-]; troca demais por "-"; colapsa; corta em 64
+// Permite [A-Za-z0-9 _-]; troca o resto por "-"; colapsa; corta em 64
 function sanitizeCustomId(input: string, maxLen = 64) {
   return input
     .normalize('NFKD')
-    .replace(/[^\w\- ]+/g, '-')  // mantém letras/números/_/espaço/hífen; remove o resto
-    .replace(/\s+/g, '-')        // espaço -> hífen
-    .replace(/-+/g, '-')         // múltiplos hífens -> um
-    .replace(/^-|-$/g, '')       // trim de hífen
+    .replace(/[^\w\- ]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '')
     .slice(0, maxLen);
 }
 
@@ -154,22 +146,19 @@ async function getEfiSdk(): Promise<{ EfiPay: any; pkg: string }> {
   }
 }
 
-// ----------------- PROBES DE OAUTH (dois hosts possíveis) ---------------------
+// ---------- PROBES OAUTH (opcional) ----------
 async function probeOAuthBoth(sandbox: boolean, clientId: string, clientSecret: string) {
   if (process.env.EFI_EXTRA_PROBE !== '1') return;
   const axios = (await import('axios')).default;
-
   const clean = (s: string) => s.replace(/[\r\n]/g, '').trim();
   const id = clean(clientId);
   const sec = clean(clientSecret);
   const basic = Buffer.from(`${id}:${sec}`).toString('base64');
   console.log('[EFI][PROBE][BASIC] len=', basic.length, 'peek=', mask(basic, 6));
-
   const targets = [
     { name: 'oauth', url: (sandbox ? 'https://oauth-h.efipay.com.br/token' : 'https://oauth.efipay.com.br/token'), body: 'grant_type=client_credentials', headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
     { name: 'cobrancas', url: (sandbox ? 'https://cobrancas-h.api.efipay.com.br/v1/authorize' : 'https://cobrancas.api.efipay.com.br/v1/authorize'), body: { grant_type: 'client_credentials' }, headers: { 'Content-Type': 'application/json' } },
   ];
-
   for (const t of targets) {
     try {
       console.log('[EFI][PROBE][OAUTH]', t.name, 'POST', t.url);
@@ -187,7 +176,7 @@ async function probeOAuthBoth(sandbox: boolean, clientId: string, clientSecret: 
     }
   }
 }
-// ------------------------------------------------------------------------------
+// --------------------------------------------
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Fail>) {
   if (req.method !== 'POST') {
@@ -240,7 +229,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(500).json({
         error: 'Credenciais da Efí incompletas no servidor.',
         stage,
-        hint: 'Preencha EFI_CLIENT_ID e EFI_CLIENT_SECRET no .env local/Projeto.',
+        hint: 'Preencha EFI_CLIENT_ID e EFI_CLIENT_SECRET no .env e redeploy.',
       });
     }
     if (!certificate) {
@@ -310,22 +299,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (!Number.isFinite(itemValue) || itemValue <= 0) throw new Error('item[value] inválido');
     if (!Number.isFinite(itemAmount) || itemAmount < 1) throw new Error('item[amount] inválido');
 
-    // --------- MONTA notification_url (servidor) + custom_id seguro ----------
-    const baseFromEnv =
-      (process.env.NEXT_PUBLIC_WEBHOOK_BASE_URL || '').trim() ||
-      (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-
-    const webhookToken = (process.env.EFI_WEBHOOK_TOKEN || '').split(',')
-      .map(s => s.trim()).find(Boolean);
-
-    let serverNotificationUrl: string | null = null;
-    if (baseFromEnv && isHttps(baseFromEnv) && webhookToken) {
-      serverNotificationUrl = `${baseFromEnv.replace(/\/$/, '')}/api/efi/webhooks?t=${encodeURIComponent(webhookToken)}`;
-    }
-
-    const customRaw =
-      (metadata?.custom_id ? String(metadata.custom_id) : `${company_id}-${plan_slug}`);
-    const customSafe = sanitizeCustomId(customRaw);
+    const safeCustomId = metadata?.custom_id ? sanitizeCustomId(String(metadata.custom_id)) : undefined;
 
     log('Payload (resumo):', {
       plan_uuid: mask(plan_uuid),
@@ -334,14 +308,12 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       efi_plan_id: efi_plan_id ?? '(novo)',
       item: { name: item.name, value: itemValue, amount: itemAmount },
       meta: {
-        custom_id: mask(customSafe, 6),
-        notify: serverNotificationUrl ? '(server-defined)' :
-               (metadata?.notification_url ? '(client-provided)' : '(vazio)'),
+        custom_id: safeCustomId ? mask(safeCustomId, 6) : '(vazio)',
+        notify: metadata?.notification_url || '(vazio)',
       },
       customer: { name: customer.name, email: customer.email },
     });
 
-    // PROBES OAuth (diagnóstico explícito)
     await probeOAuthBoth(sandbox, clientId, clientSecret);
 
     // instancia SDK
@@ -356,11 +328,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     if (certPass) options.certificate_key = certPass;
     const api = new (EfiPay as any)(options);
 
-    // sanity
-    log('[SDK] typeof createPlan:', typeof (api as any).createPlan);
-    log('[SDK] typeof createSubscription:', typeof (api as any).createSubscription);
-    log('[SDK] opts:', { sandbox, hasCert: !!certificate, hasClient: !!clientId, hasSecret: !!clientSecret });
-
     // 1) Plano
     stage = STAGES.CREATE_PLAN;
     let planId = efi_plan_id;
@@ -372,6 +339,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         console.log('[EFI][PLAN][RAW]', util.inspect(createdPlan, { depth: 8 }));
         planId = createdPlan?.data?.plan_id ?? createdPlan?.plan_id;
         log('[PLAN] created:', { planId });
+
+        // grava efi_plan_id no banco
+        if (plan_uuid && planId) {
+          await supabase.from('plans').update({ efi_plan_id: planId }).eq('id', plan_uuid);
+        }
       } catch (e: any) {
         console.error('[EFI][RAW ERROR][PLAN]', util.inspect(e, { depth: 10 }));
         const details = {
@@ -391,7 +363,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           stage,
           hint:
             details.status === 401 || /unauthorized/i.test(String(details.error || details.message))
-              ? '401 Unauthorized: confirme EFI_SANDBOX e se ClientId/Secret (sandbox) correspondem à mesma conta do certificado.'
+              ? '401 Unauthorized: confirme EFI_SANDBOX e se ClientId/Secret correspondem à conta do certificado.'
               : (nodeMajor >= 21 ? 'Se o erro for mTLS “mudo”, teste com Node 20 LTS.' : undefined),
           details,
         });
@@ -401,31 +373,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       log('[PLAN] usando efi_plan_id informado:', planId);
     }
 
-    // 2) Assinatura — id do plano VAI NA ROTA; body NÃO contém plan_id
+    // 2) Assinatura
     stage = STAGES.CREATE_SUB;
     const subsParams = { id: Number(planId) };
     const subsBody: any = {
       items: [{ name: item.name, value: itemValue, amount: itemAmount }],
-      metadata: { custom_id: customSafe },
     };
-
-    if (serverNotificationUrl) {
-      subsBody.metadata.notification_url = serverNotificationUrl;
-    } else if (isHttps(metadata?.notification_url)) {
-      // fallback: só aceita HTTPS vindo do client se env não definiu
-      subsBody.metadata.notification_url = String(metadata.notification_url);
-    } else if (metadata?.notification_url) {
-      log('[SUB] ignorando notification_url não-HTTPS (client):', metadata.notification_url);
+    if (safeCustomId || metadata?.notification_url) {
+      subsBody.metadata = {};
+      if (safeCustomId) subsBody.metadata.custom_id = safeCustomId;
+      if (isHttps(metadata?.notification_url)) subsBody.metadata.notification_url = String(metadata!.notification_url);
     }
-
     log('[SUB] createSubscription params/body:', subsParams, subsBody);
 
     let subscription_id: number;
+    let first_charge_id: number | undefined;
     try {
       const createdSub = await api.createSubscription(subsParams, subsBody);
       console.log('[EFI][SUB][RAW]', util.inspect(createdSub, { depth: 8 }));
       subscription_id = createdSub?.data?.subscription_id ?? createdSub?.subscription_id;
-      log('[SUB] created:', { subscription_id });
+      first_charge_id = createdSub?.data?.charges?.[0]?.charge_id ?? createdSub?.charges?.[0]?.charge_id;
+      log('[SUB] created:', { subscription_id, first_charge_id });
     } catch (e: any) {
       console.error('[EFI][RAW ERROR][SUB]', util.inspect(e, { depth: 10 }));
       const details = {
@@ -481,14 +449,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       payment_token: mask(payment_token, 6),
     });
 
+    let subsStatus: string = 'pending_payment';
+    let charge_id_from_pay: number | undefined;
     try {
       const params = { id: Number(subscription_id) };
       const payResp = await api.defineSubscriptionPayMethod(params, payBody);
       console.log('[EFI][PAY][RAW]', util.inspect(payResp, { depth: 8 }));
-      const charge_id = payResp?.data?.charge_id ?? payResp?.charge_id;
-      const status    = payResp?.data?.status ?? payResp?.status ?? 'waiting';
-      log('[PAY] OK:', { charge_id, status });
-      return res.status(200).json({ subscription_id, charge_id, status, stage });
+      charge_id_from_pay = payResp?.data?.charge_id ?? payResp?.charge_id;
+      subsStatus = payResp?.data?.status ?? payResp?.status ?? 'waiting';
+      log('[PAY] OK:', { charge_id_from_pay, subsStatus });
     } catch (e: any) {
       console.error('[EFI][RAW ERROR][PAY]', util.inspect(e, { depth: 10 }));
       const details = {
@@ -509,6 +478,43 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         details,
       });
     }
+
+    // ----------- GRAVA NO BANCO -----------
+    // 2.1 subscriptions (upsert por efi_subscription_id)
+    const startedAt = subsStatus === 'active' ? new Date().toISOString() : null;
+    await supabase.from('subscriptions').upsert(
+      {
+        company_id,                     // requer coluna adicionada
+        plan_id: plan_uuid,
+        efi_subscription_id: String(subscription_id),
+        status: subsStatus === 'active' ? 'active' : 'pending_payment',
+        started_at: startedAt,
+        updated_at: new Date().toISOString(),
+        last_charge_id: charge_id_from_pay || first_charge_id || null,
+      },
+      { onConflict: 'efi_subscription_id' }
+    );
+
+    // 2.2 transactions (cobrança do mês ainda "waiting")
+    const chargeId = charge_id_from_pay || first_charge_id;
+    if (chargeId) {
+      await supabase.from('transactions').upsert(
+        {
+          efi_charge_id: chargeId,
+          subscription_id: null,         // se você tiver FK, pode preencher depois via job/join
+          status: 'waiting',
+          method: 'credit_card',
+          amount_cents: itemValue * itemAmount,
+          currency: 'BRL',
+          response_json: {},             // pode guardar retorno bruto se quiser
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        } as any
+      );
+    }
+    // --------------------------------------
+
+    return res.status(200).json({ subscription_id, charge_id: chargeId, status: subsStatus, stage: STAGES.DEFINE_PAY });
   } catch (e: any) {
     const payload: Fail = {
       error: e?.errorDescription || e?.error || e?.message || 'Erro ao processar assinatura',
