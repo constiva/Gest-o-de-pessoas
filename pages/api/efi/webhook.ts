@@ -11,9 +11,7 @@ const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 // ---------- Log em arquivo (útil só em dev) ----------
 const WEBHOOK_LOG =
-  process.env.NODE_ENV === 'production'
-    ? '/tmp/webhook.txt'
-    : path.join(process.cwd(), 'webhook.txt');
+  process.env.NODE_ENV === 'production' ? '/tmp/webhook.txt' : path.join(process.cwd(), 'webhook.txt');
 
 function ensureLogFile() { try { if (!fs.existsSync(WEBHOOK_LOG)) fs.writeFileSync(WEBHOOK_LOG, ''); } catch {} }
 function appendFile(entry: any) { try { ensureLogFile(); fs.appendFileSync(WEBHOOK_LOG, JSON.stringify(entry) + '\n'); } catch {} }
@@ -54,7 +52,7 @@ async function makeEfiApi() {
   return new (EfiPay as any)(opts);
 }
 
-// ---------- Normalização de status ----------
+// ---------- Normalização / parsing ----------
 function extractStatus(input: any): string {
   if (!input) return '';
   if (typeof input === 'string') return norm(input);
@@ -67,20 +65,25 @@ function extractStatus(input: any): string {
   }
   return '';
 }
-function pickEventFields(obj: any) {
+
+type ParsedEvent = {
+  subscription_id: string | null;
+  charge_id: string | null;
+  status: string;
+  custom_id?: string | null;
+};
+function pickEventFields(obj: any): ParsedEvent {
   const subId =
     obj?.subscription_id ??
     obj?.subscription?.id ??
     obj?.identifiers?.subscription_id ??
-    obj?.data?.subscription_id ??
-    null;
+    obj?.data?.subscription_id ?? null;
 
   const chargeId =
     obj?.charge_id ??
     obj?.charge?.id ??
     obj?.identifiers?.charge_id ??
-    obj?.data?.charge_id ??
-    null;
+    obj?.data?.charge_id ?? null;
 
   const statusRaw =
     obj?.status ??
@@ -88,15 +91,34 @@ function pickEventFields(obj: any) {
     obj?.event ??
     obj?.data?.status ??
     obj?.charge?.status ??
-    obj?.subscription?.status ??
-    null;
+    obj?.subscription?.status ?? null;
+
+  const customId =
+    obj?.metadata?.custom_id ??
+    obj?.subscription?.metadata?.custom_id ??
+    obj?.data?.metadata?.custom_id ??
+    obj?.custom_id ?? null;
 
   const status = extractStatus(statusRaw);
-  return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status };
+  return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status, custom_id: customId ?? null };
 }
 
-// ---------- Retry para evitar corrida com insert local ----------
-async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts = 8) {
+// custom_id esperado: "company:<uuid>|plan:<slug>|<opcional>"
+function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: string } {
+  if (!raw) return {};
+  const parts = String(raw).split('|');
+  const out: { companyId?: string; planSlug?: string } = {};
+  for (const p of parts) {
+    const [k, v] = p.split(':', 2);
+    if (!k || !v) continue;
+    if (k === 'company') out.companyId = v;
+    if (k === 'plan') out.planSlug = v;
+  }
+  return out;
+}
+
+// ---------- Retry para evitar corrida ----------
+async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts = 10) {
   let attempt = 0;
   while (attempt < maxAttempts) {
     attempt += 1;
@@ -115,225 +137,59 @@ async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts 
         .single();
     }
 
-    if (subRes.data) {
-      try {
-        await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi',
-          received_at: new Date().toISOString(),
-          event_type: 'retry-found',
-          body: { attempt, efi_subscription_id: efiSubscriptionId },
-          headers: {}, ip: '',
-        } as any);
-      } catch {}
-      return subRes.data as {
-        id: string;
-        company_id: string | null;
-        plan_id: string | null;
-        status: string | null;
-        started_at: string | null;
-      };
-    }
+    if (subRes.data) return subRes.data as {
+      id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null;
+    };
 
-    const delay = Math.min(500 * Math.pow(1.3, attempt - 1), 1000);
-    try {
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'retry-search',
-        body: { attempt, delay, efi_subscription_id: efiSubscriptionId },
-        headers: {}, ip: '',
-      } as any);
-    } catch {}
-
+    const delay = Math.min(500 * Math.pow(1.35, attempt - 1), 1200);
     await sleep(delay);
   }
-
-  try {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'retry-giveup',
-      body: { efi_subscription_id: efiSubscriptionId, attempts: maxAttempts },
-      headers: {}, ip: '',
-    } as any);
-  } catch {}
   return null;
 }
 
-// ---------- Helpers de plano/valor ----------
-async function getPlanInfo(planId: string | null) {
-  if (!planId) return { slug: null as string | null, max_employees: null as number | null, price_cents: 0, currency: 'BRL' as string };
-  // tenta pegar preço + currency; se a coluna não existir, tenta versão reduzida
-  let slug: string | null = null;
-  let max_employees: number | null = null;
-  let price_cents = 0;
-  let currency = 'BRL';
-
+// ---------- Helpers Efí: detailSubscription / detailCharge ----------
+async function detailSubscription(api: any, id: string | number): Promise<any | null> {
   try {
-    const { data, error } = await supabaseAdmin
-      .from('plans')
-      .select('slug, max_employees, price_cents, currency')
-      .eq('id', planId)
-      .single();
-    if (!error && data) {
-      slug = (data as any).slug ?? null;
-      max_employees = (data as any).max_employees ?? null;
-      price_cents = Number((data as any).price_cents ?? 0) || 0;
-      currency = (data as any).currency || 'BRL';
-      return { slug, max_employees, price_cents, currency };
-    }
-  } catch {}
+    const resp = await api.detailSubscription({ id: Number(id) });
+    return resp?.data ?? resp ?? null;
+  } catch { return null; }
+}
+async function detailCharge(api: any, id: string | number): Promise<any | null> {
   try {
-    const { data } = await supabaseAdmin
-      .from('plans')
-      .select('slug, max_employees')
-      .eq('id', planId)
-      .single();
-    if (data) {
-      slug = (data as any).slug ?? null;
-      max_employees = (data as any).max_employees ?? null;
-    }
-  } catch {}
-  return { slug, max_employees, price_cents, currency };
+    const resp = await api.detailCharge({ id: Number(id) });
+    return resp?.data ?? resp ?? null;
+  } catch { return null; }
+}
+function extractAmountCentsFromCharge(obj: any): number {
+  if (!obj) return 0;
+  // tentativas comuns de campos
+  const candidates = [
+    obj.total, obj.value, obj.amount, obj.amount_total,
+    obj?.payment?.amount, obj?.charge?.total, obj?.charge?.amount, obj?.billing?.amount
+  ];
+  for (const c of candidates) { const n = Number(c); if (Number.isFinite(n) && n >= 0) return Math.round(n); }
+  return 0;
 }
 
-// ---------- Transações ----------
-type TxStatus = 'new' | 'waiting' | 'paid' | 'failed' | 'canceled';
-
-async function upsertTransactionForEvent(opts: {
-  company_id: string | null;
-  subscription_id: string;
-  plan_id: string | null;
-  efi_subscription_id: string;
-  efi_charge_id: string | null;
-  tx_status: TxStatus;
-  amount_cents: number;
-  currency: string;
-  response_json?: any;
-  method?: 'card' | 'pix' | 'billet';
+// ---------- Upsert de transaction (waiting/paid) ----------
+async function upsertTransaction({
+  company_id, subscription_id, plan_id, efi_subscription_id, efi_charge_id, status, amount_cents, currency = 'BRL',
+}: {
+  company_id: string; subscription_id: string; plan_id: string | null;
+  efi_subscription_id: string | number | null; efi_charge_id: string | number | null;
+  status: 'waiting' | 'paid' | 'failed';
+  amount_cents: number; currency?: 'BRL';
 }) {
-  const method = opts.method || 'card';
-
-  // Se temos charge_id, tenta achar por charge_id; senão, usa “waiting sem charge” mais recente
-  if (opts.efi_charge_id) {
-    const { data: existing } = await supabaseAdmin
-      .from('transactions')
-      .select('id')
-      .eq('efi_charge_id', Number(opts.efi_charge_id))
-      .limit(1)
-      .maybeSingle();
-
-    if (existing) {
-      await supabaseAdmin.from('transactions')
-        .update({
-          status: opts.tx_status,
-          amount_cents: opts.amount_cents,
-          currency: opts.currency,
-          response_json: opts.response_json ?? null,
-          updated_at: new Date().toISOString(),
-        } as any)
-        .eq('id', (existing as any).id);
-      return (existing as any).id as string;
-    }
-  } else {
-    // Dedup bem simples de “waiting sem charge”: reaproveita a última em até 10min
-    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
-    const { data: existingWait } = await supabaseAdmin
-      .from('transactions')
-      .select('id, created_at, status')
-      .is('efi_charge_id', null)
-      .eq('subscription_id', opts.subscription_id)
-      .gte('created_at', tenMinAgo)
-      .order('created_at', { ascending: false })
-      .limit(1);
-
-    if (existingWait && existingWait.length) {
-      await supabaseAdmin.from('transactions')
-        .update({
-          status: opts.tx_status, // pode permanecer waiting
-          amount_cents: opts.amount_cents,
-          currency: opts.currency,
-          response_json: opts.response_json ?? null,
-          updated_at: new Date().toISOString(),
-        } as any)
-        .eq('id', existingWait[0].id);
-      return existingWait[0].id as string;
-    }
-  }
-
-  // Insert
-  const insertRow: any = {
-    company_id: opts.company_id,
-    subscription_id: opts.subscription_id,
-    plan_id: opts.plan_id,
-    efi_subscription_id: Number(opts.efi_subscription_id),
-    efi_charge_id: opts.efi_charge_id ? Number(opts.efi_charge_id) : null,
-    cycle_number: null,
-    method: method,
-    status: opts.tx_status,
-    amount_cents: opts.amount_cents,
-    currency: opts.currency,
-    response_json: opts.response_json ?? null,
-    metadata_json: null,
-    created_at: new Date().toISOString(),
+  const payload: any = {
+    company_id, subscription_id, plan_id,
+    efi_subscription_id: efi_subscription_id ? Number(efi_subscription_id) : null,
+    efi_charge_id: efi_charge_id ? Number(efi_charge_id) : null,
+    status, amount_cents, currency,
     updated_at: new Date().toISOString(),
   };
-
-  const { data: inserted, error } = await supabaseAdmin
-    .from('transactions')
-    .insert(insertRow)
-    .select('id')
-    .single();
-
-  if (error) {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'tx-insert-error',
-      body: { message: error.message, row: insertRow },
-      headers: {}, ip: '',
-    } as any);
-    throw error;
-  }
-  return inserted?.id as string;
+  await supabaseAdmin.from('transactions').upsert(payload, { onConflict: 'efi_charge_id' });
 }
 
-// ---------- Enforce 1 ativa por empresa (cancela outras) ----------
-async function cancelOtherActives(companyId: string | null, keepSubId: string, keepEfiSubId: string | null) {
-  if (!companyId) return;
-  const { data: others } = await supabaseAdmin
-    .from('subscriptions')
-    .select('id, efi_subscription_id')
-    .eq('company_id', companyId)
-    .eq('status', 'active');
-
-  if (!others || !others.length) return;
-
-  const api = await makeEfiApi().catch(() => null);
-
-  for (const row of others) {
-    if (row.id === keepSubId) continue; // não cancelar a atual
-    try {
-      if (api && row.efi_subscription_id && String(row.efi_subscription_id) !== String(keepEfiSubId ?? '')) {
-        try { await (api as any).cancelSubscription({ id: Number(row.efi_subscription_id) }); } catch {}
-      }
-      await supabaseAdmin
-        .from('subscriptions')
-        .update({ status: 'canceled', canceled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', row.id);
-
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'auto-cancel-old-active',
-        body: { canceled_subscription_id: row.id, reason: 'new-active' },
-        headers: {}, ip: '',
-      } as any);
-    } catch {}
-  }
-}
-
-// ================== HANDLER ==================
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('x-instance', `${process.env.VERCEL_REGION || 'local'}`);
@@ -384,235 +240,234 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       certB64: !!process.env.EFI_CERT_PEM_BASE64,
     };
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'env-check',
-      body: envHave,
-      headers: base.headers,
-      ip: String(base.ip || ''),
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'env-check',
+      body: envHave, headers: base.headers, ip: String(base.ip || ''),
     } as any);
   } catch {}
 
   // 1) auditoria bruta
   try {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'incoming',
-      body,
-      headers: base.headers,
-      ip: String(base.ip || ''),
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'incoming',
+      body, headers: base.headers, ip: String(base.ip || ''),
     } as any);
-  } catch (e) {
-    appendFile({ ...base, type: 'db-log-error', message: (e as any)?.message || String(e) });
-  }
+  } catch {}
 
   // 2) resolve via token de notificação (quando vier)
   const tokenNotif: string | null = body?.notification || body?.token || body?.notification_token || null;
-  let resolved: Array<{ subscription_id: string | null; charge_id: string | null; status: string }> = [];
+  let resolved: ParsedEvent[] = [];
 
   if (tokenNotif) {
     try {
       const api = await makeEfiApi();
       if (api) {
-        const resp = await (api as any).getNotification({ token: tokenNotif });
+        const resp = await api.getNotification({ token: tokenNotif });
         const arr: any[] = (resp && (resp.data ?? resp)) || [];
         resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
-
         await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi',
-          received_at: new Date().toISOString(),
-          event_type: 'resolved',
+          provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolved',
           body: { token: tokenNotif, count: resolved.length, raw_len: Array.isArray(arr) ? arr.length : 0 },
-          headers: base.headers,
-          ip: String(base.ip || ''),
+          headers: base.headers, ip: String(base.ip || ''),
         } as any);
-
-        appendFile({ ...base, type: 'resolved-notification', count: resolved.length });
       } else {
-        appendFile({ ...base, type: 'resolve-skip', reason: 'missing-sdk-or-creds' });
         await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi',
-          received_at: new Date().toISOString(),
-          event_type: 'resolve-skip',
-          body: { reason: 'missing-sdk-or-creds' },
-          headers: base.headers,
-          ip: String(base.ip || ''),
+          provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolve-skip',
+          body: { reason: 'missing-sdk-or-creds' }, headers: base.headers, ip: String(base.ip || ''),
         } as any);
       }
     } catch (e: any) {
-      appendFile({ ...base, type: 'resolve-error', message: e?.message || String(e) });
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'resolve-error',
-        body: { message: e?.message || String(e) },
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolve-error',
+        body: { message: e?.message || String(e) }, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
   }
 
   // 3) fallback direto do body
   if (!resolved.length) {
-    const fallback = pickEventFields(body);
-    if (fallback.subscription_id || fallback.charge_id || fallback.status) {
-      resolved.push(fallback);
-      appendFile({ ...base, type: 'fallback-parse', parsed: fallback });
+    const fb = pickEventFields(body);
+    if (fb.subscription_id || fb.charge_id || fb.status) {
+      resolved.push(fb);
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'fallback-parse',
-        body: fallback,
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'fallback-parse',
+        body: fb, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
   }
 
-  if (!resolved.length) {
-    appendFile({ ...base, type: 'skip', reason: 'no-ids-or-status' });
-    return res.status(200).json({ ok: true, skipped: 'no-ids-or-status' });
-  }
+  if (!resolved.length) return res.status(200).json({ ok: true, skipped: 'no-ids-or-status' });
 
   // 4) aplica o último evento
   const last = resolved[resolved.length - 1];
-  const subscriptionId = last.subscription_id!;
+  const subscriptionId = last.subscription_id;
   const chargeId = last.charge_id;
   const status = last.status;
+  const customFromEvent = last.custom_id || null;
 
-  appendFile({ ...base, type: 'normalized', parsed: { subscriptionId, chargeId, status } });
-  try {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'normalized',
-      body: { subscription_id: subscriptionId, charge_id: chargeId, status },
-      headers: base.headers,
-      ip: String(base.ip || ''),
-    } as any);
-  } catch {}
+  await supabaseAdmin.from('payment_webhook_log').insert({
+    provider: 'efi', received_at: new Date().toISOString(), event_type: 'normalized',
+    body: { subscription_id: subscriptionId, charge_id: chargeId, status, custom_id: customFromEvent },
+    headers: base.headers, ip: String(base.ip || ''),
+  } as any);
+
+  if (!subscriptionId) return res.status(200).json({ ok: true, skipped: 'no-subscription-id' });
 
   // 5) carrega subscription local — com RETRY
-  const sub = await findSubscriptionWithRetry(String(subscriptionId), 8);
+  let sub = await findSubscriptionWithRetry(String(subscriptionId), 10);
+
+  // 5.1 Auto-healing: se não achou, tenta detalhar assinatura na Efí para construir a linha local
   if (!sub) {
-    appendFile({ ...base, type: 'db-miss', reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId });
+    const api = await makeEfiApi();
+    let customFromDetail: string | null = null;
+    if (api) {
+      const detail = await detailSubscription(api, subscriptionId);
+      customFromDetail = detail?.metadata?.custom_id ?? null;
+      if (customFromDetail) {
+        const parsed = parseCustomId(customFromDetail);
+        let companyId = parsed.companyId;
+        let planId: string | null = null;
+
+        if (!companyId && customFromEvent) companyId = parseCustomId(customFromEvent).companyId;
+
+        if (parsed.planSlug) {
+          const { data: planRow } = await supabaseAdmin
+            .from('plans')
+            .select('id')
+            .eq('slug', parsed.planSlug)
+            .single();
+          planId = planRow?.id ?? null;
+        }
+
+        if (companyId) {
+          // cria a subscription mínima como waiting
+          const ins = await supabaseAdmin
+            .from('subscriptions')
+            .insert({
+              company_id: companyId,
+              plan_id: planId,
+              efi_subscription_id: Number(subscriptionId),
+              status: 'waiting',
+              started_at: null,
+              updated_at: new Date().toISOString(),
+            } as any)
+            .select('id, company_id, plan_id, status, started_at')
+            .single();
+
+          if (!ins.error && ins.data) {
+            sub = ins.data as any;
+            await supabaseAdmin.from('payment_webhook_log').insert({
+              provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
+              body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
+              headers: base.headers, ip: String(base.ip || ''),
+            } as any);
+          } else {
+            await supabaseAdmin.from('payment_webhook_log').insert({
+              provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+              body: { subscription_id: subscriptionId, error: ins.error?.message },
+              headers: base.headers, ip: String(base.ip || ''),
+            } as any);
+          }
+        }
+      }
+    }
+  }
+
+  if (!sub) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'db-miss',
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-miss',
       body: { reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId },
-      headers: base.headers,
-      ip: String(base.ip || ''),
+      headers: base.headers, ip: String(base.ip || ''),
     } as any);
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  // 6) info do plano (valor/moeda/limites)
-  const planInfo = await getPlanInfo(sub.plan_id);
-  const amount_cents = planInfo.price_cents ?? 0;
-  const currency = planInfo.currency || 'BRL';
-
   const isPaid = status === 'paid' || status === 'active' || status === 'confirmed';
   const isFailed = ['unpaid', 'failed', 'charge_failed'].includes(status);
   const isCanceled = ['canceled', 'cancelled'].includes(status);
-  const isWaiting = ['waiting', 'new', 'pending'].includes(status);
 
   try {
-    // 6.a) transação (registrar waiting e paid)
-    if (isWaiting || isPaid || isFailed) {
-      await upsertTransactionForEvent({
-        company_id: sub.company_id,
-        subscription_id: sub.id,
-        plan_id: sub.plan_id,
-        efi_subscription_id: String(subscriptionId),
-        efi_charge_id: chargeId || null,
-        tx_status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
-        amount_cents,
-        currency,
-        response_json: { subscription_id: subscriptionId, charge_id: chargeId, status },
-        method: 'card',
+    // 6) Transação (registrar waiting/paid) — tenta pegar valor via detailCharge
+    let amountCents = 0;
+    if (chargeId) {
+      const api = await makeEfiApi();
+      if (api) {
+        const ch = await detailCharge(api, chargeId);
+        amountCents = extractAmountCentsFromCharge(ch);
+      }
+      await upsertTransaction({
+        company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
+        efi_subscription_id: subscriptionId, efi_charge_id: chargeId,
+        status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
+        amount_cents: amountCents,
       });
+      await supabaseAdmin.from('subscriptions')
+        .update({ last_charge_id: Number(chargeId), updated_at: new Date().toISOString() })
+        .eq('id', sub.id);
     }
 
-    // 6.b) estados da assinatura/empresa
+    // 7) Atualiza status da assinatura e empresa
     if (isPaid) {
-      // cancela outras ativas antes de ativar esta (respeita índice único)
-      await cancelOtherActives(sub.company_id, sub.id, String(subscriptionId));
-
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
         started_at: sub.started_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        last_charge_id: chargeId ? Number(chargeId) : null,
       }).eq('id', sub.id);
 
-      if (sub.company_id) {
-        await supabaseAdmin.from('companies').update({
-          plan: planInfo.slug,
-          maxemployees: planInfo.max_employees ?? null,
-        }).eq('id', sub.company_id);
+      if (sub.plan_id) {
+        const { data: planRow } = await supabaseAdmin
+          .from('plans')
+          .select('slug, max_employees')
+          .eq('id', sub.plan_id)
+          .single();
+
+        if (sub.company_id && planRow) {
+          await supabaseAdmin.from('companies').update({
+            plan: planRow.slug, maxemployees: planRow.max_employees ?? null,
+          }).eq('id', sub.company_id);
+        }
       }
 
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'db-update',
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
         body: { action: 'activate', subscription_id: subscriptionId, charge_id: chargeId, company_id: sub.company_id, plan_id: sub.plan_id },
         headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isFailed) {
       await supabaseAdmin.from('subscriptions').update({
-        status: 'overdue',
-        updated_at: new Date().toISOString(),
-        last_charge_id: chargeId ? Number(chargeId) : null,
+        status: 'overdue', updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'db-update',
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
         body: { action: 'overdue', subscription_id: subscriptionId, charge_id: chargeId },
         headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isCanceled) {
       await supabaseAdmin.from('subscriptions').update({
-        status: 'canceled',
-        canceled_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        status: 'canceled', canceled_at: new Date().toISOString(), updated_at: new Date().toISOString(),
       }).eq('id', sub.id);
 
       if (sub.company_id) {
         await supabaseAdmin.from('companies').update({
-          plan: 'free',
-          maxemployees: 3,
+          plan: 'free', maxemployees: 3,
         }).eq('id', sub.company_id);
       }
 
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'db-update',
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
         body: { action: 'canceled', subscription_id: subscriptionId },
         headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else {
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi',
-        received_at: new Date().toISOString(),
-        event_type: 'no-op',
-        body: { status },
-        headers: base.headers, ip: String(base.ip || ''),
+        provider: 'efi', received_at: new Date().toISOString(), event_type: 'no-op',
+        body: { status }, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
-  } catch (e) {
-    appendFile({ ...base, type: 'db-error', message: (e as any)?.message || String(e) });
+  } catch (e: any) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi',
-      received_at: new Date().toISOString(),
-      event_type: 'db-error',
-      body: { message: (e as any)?.message || String(e) },
-      headers: base.headers, ip: String(base.ip || ''),
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-error',
+      body: { message: e?.message || String(e) }, headers: base.headers, ip: String(base.ip || ''),
     } as any);
   }
 
