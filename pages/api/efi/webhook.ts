@@ -97,19 +97,16 @@ function pickEventFields(obj: any) {
 
 // ---------- Retry para evitar corrida com insert local ----------
 async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts = 8) {
-  // ~total 4–6s (500ms com backoff e teto de 1000ms)
   let attempt = 0;
   while (attempt < maxAttempts) {
     attempt += 1;
 
-    // tenta como string
     let subRes = await supabaseAdmin
       .from('subscriptions')
       .select('id, company_id, plan_id, status, started_at')
       .eq('efi_subscription_id', efiSubscriptionId)
       .single();
 
-    // se não achou e o campo for numérico, tenta como número
     if ((subRes.error || !subRes.data) && /^\d+$/.test(efiSubscriptionId)) {
       subRes = await supabaseAdmin
         .from('subscriptions')
@@ -119,15 +116,13 @@ async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts 
     }
 
     if (subRes.data) {
-      // log de sucesso e retorna
       try {
         await supabaseAdmin.from('payment_webhook_log').insert({
           provider: 'efi',
           received_at: new Date().toISOString(),
           event_type: 'retry-found',
           body: { attempt, efi_subscription_id: efiSubscriptionId },
-          headers: {},
-          ip: '',
+          headers: {}, ip: '',
         } as any);
       } catch {}
       return subRes.data as {
@@ -139,36 +134,206 @@ async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts 
       };
     }
 
-    // loga tentativa e espera com backoff
-    const delay = Math.min(500 * Math.pow(1.3, attempt - 1), 1000); // 500ms -> teto 1000ms
+    const delay = Math.min(500 * Math.pow(1.3, attempt - 1), 1000);
     try {
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
         received_at: new Date().toISOString(),
         event_type: 'retry-search',
         body: { attempt, delay, efi_subscription_id: efiSubscriptionId },
-        headers: {},
-        ip: '',
+        headers: {}, ip: '',
       } as any);
     } catch {}
 
     await sleep(delay);
   }
 
-  // falhou todas as tentativas
   try {
     await supabaseAdmin.from('payment_webhook_log').insert({
       provider: 'efi',
       received_at: new Date().toISOString(),
       event_type: 'retry-giveup',
       body: { efi_subscription_id: efiSubscriptionId, attempts: maxAttempts },
-      headers: {},
-      ip: '',
+      headers: {}, ip: '',
     } as any);
   } catch {}
   return null;
 }
 
+// ---------- Helpers de plano/valor ----------
+async function getPlanInfo(planId: string | null) {
+  if (!planId) return { slug: null as string | null, max_employees: null as number | null, price_cents: 0, currency: 'BRL' as string };
+  // tenta pegar preço + currency; se a coluna não existir, tenta versão reduzida
+  let slug: string | null = null;
+  let max_employees: number | null = null;
+  let price_cents = 0;
+  let currency = 'BRL';
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('plans')
+      .select('slug, max_employees, price_cents, currency')
+      .eq('id', planId)
+      .single();
+    if (!error && data) {
+      slug = (data as any).slug ?? null;
+      max_employees = (data as any).max_employees ?? null;
+      price_cents = Number((data as any).price_cents ?? 0) || 0;
+      currency = (data as any).currency || 'BRL';
+      return { slug, max_employees, price_cents, currency };
+    }
+  } catch {}
+  try {
+    const { data } = await supabaseAdmin
+      .from('plans')
+      .select('slug, max_employees')
+      .eq('id', planId)
+      .single();
+    if (data) {
+      slug = (data as any).slug ?? null;
+      max_employees = (data as any).max_employees ?? null;
+    }
+  } catch {}
+  return { slug, max_employees, price_cents, currency };
+}
+
+// ---------- Transações ----------
+type TxStatus = 'new' | 'waiting' | 'paid' | 'failed' | 'canceled';
+
+async function upsertTransactionForEvent(opts: {
+  company_id: string | null;
+  subscription_id: string;
+  plan_id: string | null;
+  efi_subscription_id: string;
+  efi_charge_id: string | null;
+  tx_status: TxStatus;
+  amount_cents: number;
+  currency: string;
+  response_json?: any;
+  method?: 'card' | 'pix' | 'billet';
+}) {
+  const method = opts.method || 'card';
+
+  // Se temos charge_id, tenta achar por charge_id; senão, usa “waiting sem charge” mais recente
+  if (opts.efi_charge_id) {
+    const { data: existing } = await supabaseAdmin
+      .from('transactions')
+      .select('id')
+      .eq('efi_charge_id', Number(opts.efi_charge_id))
+      .limit(1)
+      .maybeSingle();
+
+    if (existing) {
+      await supabaseAdmin.from('transactions')
+        .update({
+          status: opts.tx_status,
+          amount_cents: opts.amount_cents,
+          currency: opts.currency,
+          response_json: opts.response_json ?? null,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', (existing as any).id);
+      return (existing as any).id as string;
+    }
+  } else {
+    // Dedup bem simples de “waiting sem charge”: reaproveita a última em até 10min
+    const tenMinAgo = new Date(Date.now() - 10 * 60 * 1000).toISOString();
+    const { data: existingWait } = await supabaseAdmin
+      .from('transactions')
+      .select('id, created_at, status')
+      .is('efi_charge_id', null)
+      .eq('subscription_id', opts.subscription_id)
+      .gte('created_at', tenMinAgo)
+      .order('created_at', { ascending: false })
+      .limit(1);
+
+    if (existingWait && existingWait.length) {
+      await supabaseAdmin.from('transactions')
+        .update({
+          status: opts.tx_status, // pode permanecer waiting
+          amount_cents: opts.amount_cents,
+          currency: opts.currency,
+          response_json: opts.response_json ?? null,
+          updated_at: new Date().toISOString(),
+        } as any)
+        .eq('id', existingWait[0].id);
+      return existingWait[0].id as string;
+    }
+  }
+
+  // Insert
+  const insertRow: any = {
+    company_id: opts.company_id,
+    subscription_id: opts.subscription_id,
+    plan_id: opts.plan_id,
+    efi_subscription_id: Number(opts.efi_subscription_id),
+    efi_charge_id: opts.efi_charge_id ? Number(opts.efi_charge_id) : null,
+    cycle_number: null,
+    method: method,
+    status: opts.tx_status,
+    amount_cents: opts.amount_cents,
+    currency: opts.currency,
+    response_json: opts.response_json ?? null,
+    metadata_json: null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data: inserted, error } = await supabaseAdmin
+    .from('transactions')
+    .insert(insertRow)
+    .select('id')
+    .single();
+
+  if (error) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'tx-insert-error',
+      body: { message: error.message, row: insertRow },
+      headers: {}, ip: '',
+    } as any);
+    throw error;
+  }
+  return inserted?.id as string;
+}
+
+// ---------- Enforce 1 ativa por empresa (cancela outras) ----------
+async function cancelOtherActives(companyId: string | null, keepSubId: string, keepEfiSubId: string | null) {
+  if (!companyId) return;
+  const { data: others } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, efi_subscription_id')
+    .eq('company_id', companyId)
+    .eq('status', 'active');
+
+  if (!others || !others.length) return;
+
+  const api = await makeEfiApi().catch(() => null);
+
+  for (const row of others) {
+    if (row.id === keepSubId) continue; // não cancelar a atual
+    try {
+      if (api && row.efi_subscription_id && String(row.efi_subscription_id) !== String(keepEfiSubId ?? '')) {
+        try { await (api as any).cancelSubscription({ id: Number(row.efi_subscription_id) }); } catch {}
+      }
+      await supabaseAdmin
+        .from('subscriptions')
+        .update({ status: 'canceled', canceled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq('id', row.id);
+
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'auto-cancel-old-active',
+        body: { canceled_subscription_id: row.id, reason: 'new-active' },
+        headers: {}, ip: '',
+      } as any);
+    } catch {}
+  }
+}
+
+// ================== HANDLER ==================
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('x-instance', `${process.env.VERCEL_REGION || 'local'}`);
@@ -209,7 +374,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   };
   appendFile({ ...base, type: 'incoming', bodyKeys: Object.keys(body || {}) });
 
-  // 0) log de ambiente (ajuda a diagnosticar por que não resolve)
+  // 0) log de ambiente
   try {
     const envHave = {
       sandbox: String(process.env.EFI_SANDBOX || '').length > 0,
@@ -250,7 +415,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     try {
       const api = await makeEfiApi();
       if (api) {
-        const resp = await api.getNotification({ token: tokenNotif });
+        const resp = await (api as any).getNotification({ token: tokenNotif });
         const arr: any[] = (resp && (resp.data ?? resp)) || [];
         resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
 
@@ -312,7 +477,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 4) aplica o último evento
   const last = resolved[resolved.length - 1];
-  const subscriptionId = last.subscription_id;
+  const subscriptionId = last.subscription_id!;
   const chargeId = last.charge_id;
   const status = last.status;
 
@@ -328,12 +493,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } as any);
   } catch {}
 
-  if (!subscriptionId) {
-    appendFile({ ...base, type: 'skip', reason: 'no-subscription-id-after-resolve' });
-    return res.status(200).json({ ok: true, skipped: 'no-subscription-id' });
-  }
-
-  // 5) carrega subscription local — com RETRY para evitar corrida
+  // 5) carrega subscription local — com RETRY
   const sub = await findSubscriptionWithRetry(String(subscriptionId), 8);
   if (!sub) {
     appendFile({ ...base, type: 'db-miss', reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId });
@@ -348,67 +508,72 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
+  // 6) info do plano (valor/moeda/limites)
+  const planInfo = await getPlanInfo(sub.plan_id);
+  const amount_cents = planInfo.price_cents ?? 0;
+  const currency = planInfo.currency || 'BRL';
+
   const isPaid = status === 'paid' || status === 'active' || status === 'confirmed';
   const isFailed = ['unpaid', 'failed', 'charge_failed'].includes(status);
   const isCanceled = ['canceled', 'cancelled'].includes(status);
+  const isWaiting = ['waiting', 'new', 'pending'].includes(status);
 
   try {
-    // transação
-    if (chargeId) {
-      await supabaseAdmin.from('transactions').upsert({
-        efi_charge_id: chargeId,
+    // 6.a) transação (registrar waiting e paid)
+    if (isWaiting || isPaid || isFailed) {
+      await upsertTransactionForEvent({
+        company_id: sub.company_id,
         subscription_id: sub.id,
-        status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
-        updated_at: new Date().toISOString(),
-      } as any);
-      await supabaseAdmin.from('subscriptions')
-        .update({ last_charge_id: chargeId, updated_at: new Date().toISOString() })
-        .eq('id', sub.id);
+        plan_id: sub.plan_id,
+        efi_subscription_id: String(subscriptionId),
+        efi_charge_id: chargeId || null,
+        tx_status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
+        amount_cents,
+        currency,
+        response_json: { subscription_id: subscriptionId, charge_id: chargeId, status },
+        method: 'card',
+      });
     }
 
+    // 6.b) estados da assinatura/empresa
     if (isPaid) {
+      // cancela outras ativas antes de ativar esta (respeita índice único)
+      await cancelOtherActives(sub.company_id, sub.id, String(subscriptionId));
+
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
         started_at: sub.started_at ?? new Date().toISOString(),
         updated_at: new Date().toISOString(),
+        last_charge_id: chargeId ? Number(chargeId) : null,
       }).eq('id', sub.id);
 
-      const { data: planRow } = await supabaseAdmin
-        .from('plans')
-        .select('slug, max_employees')
-        .eq('id', sub.plan_id)
-        .single();
-
-      if (sub.company_id && planRow) {
+      if (sub.company_id) {
         await supabaseAdmin.from('companies').update({
-          plan: planRow.slug,
-          maxemployees: planRow.max_employees ?? null,
+          plan: planInfo.slug,
+          maxemployees: planInfo.max_employees ?? null,
         }).eq('id', sub.company_id);
       }
 
-      appendFile({ ...base, type: 'db-update', action: 'activate', company_id: sub.company_id, plan_id: sub.plan_id, chargeId, subscriptionId });
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
         received_at: new Date().toISOString(),
         event_type: 'db-update',
         body: { action: 'activate', subscription_id: subscriptionId, charge_id: chargeId, company_id: sub.company_id, plan_id: sub.plan_id },
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isFailed) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'overdue',
         updated_at: new Date().toISOString(),
+        last_charge_id: chargeId ? Number(chargeId) : null,
       }).eq('id', sub.id);
 
-      appendFile({ ...base, type: 'db-update', action: 'overdue', subscriptionId, chargeId });
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
         received_at: new Date().toISOString(),
         event_type: 'db-update',
         body: { action: 'overdue', subscription_id: subscriptionId, charge_id: chargeId },
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isCanceled) {
       await supabaseAdmin.from('subscriptions').update({
@@ -424,24 +589,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }).eq('id', sub.company_id);
       }
 
-      appendFile({ ...base, type: 'db-update', action: 'canceled', subscriptionId });
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
         received_at: new Date().toISOString(),
         event_type: 'db-update',
         body: { action: 'canceled', subscription_id: subscriptionId },
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else {
-      appendFile({ ...base, type: 'no-op', status });
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
         received_at: new Date().toISOString(),
         event_type: 'no-op',
         body: { status },
-        headers: base.headers,
-        ip: String(base.ip || ''),
+        headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
   } catch (e) {
@@ -451,8 +612,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       received_at: new Date().toISOString(),
       event_type: 'db-error',
       body: { message: (e as any)?.message || String(e) },
-      headers: base.headers,
-      ip: String(base.ip || ''),
+      headers: base.headers, ip: String(base.ip || ''),
     } as any);
   }
 
