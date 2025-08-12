@@ -86,7 +86,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // dump pela base (preferível em produção)
     if (String(req.query.dump || '') === 'db') {
       const { data, error } = await supabaseAdmin
-        .from('payment_webhook')
+        .from('payment_webhook_log')
         .select('id, received_at, event_type, ip, body, headers')
         .order('received_at', { ascending: false })
         .limit(100);
@@ -115,7 +115,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   // 1) auditoria bruta
   try {
-    await supabaseAdmin.from('payment_webhook').insert({
+    await supabaseAdmin.from('payment_webhook_log').insert({
       provider: 'efi',
       received_at: new Date().toISOString(),
       event_type: 'incoming',
