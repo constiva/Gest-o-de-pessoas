@@ -105,12 +105,8 @@ function pickEventFields(obj: any): ParsedEvent {
   return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status, custom_id: customId ?? null };
 }
 
-// custom_id — versão robusta
-// Aceita:
-// 1) "company:<uuid>|plan:<slug>"
-// 2) "uuid|slug"
-// 3) "uuid-slug" (slug pode ter hífens; pega “o resto”)
-// 4) JSON string: {"company":"<uuid>","plan":"<slug>"} (ou company_id / plan_slug)
+// custom_id parser robusto:
+// Aceita 1) "company:<uuid>|plan:<slug>"  2) "uuid|slug"  3) "uuid-slug"  4) JSON {"company":"<uuid>","plan":"<slug>"}
 function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: string } {
   if (!raw) return {};
   const s = String(raw).trim();
@@ -370,8 +366,7 @@ async function upsertTransaction({
   }
 }
 
-// ---------- Auto-create SEM reaproveitar linha ----------
-// ---------- Auto-create via upsert (sempre cria nova linha por efi_subscription_id) ----------
+// ---------- Auto-create SEM reaproveitar linha (INSERT puro + trata 23505) ----------
 async function ensureLocalSubscription(opts: {
   subscriptionId: string;
   customFromEvent?: string | null;
@@ -382,7 +377,7 @@ async function ensureLocalSubscription(opts: {
   const api = await makeEfiApi();
   if (!api) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-error',
       body: { subscription_id: subscriptionId, reason: 'missing-sdk-or-creds' },
       headers: baseHeaders, ip: '',
     } as any);
@@ -400,7 +395,7 @@ async function ensureLocalSubscription(opts: {
 
   if (!custom) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-missing',
+      provider: 'efi', received_at: nowIso(), event_type: 'custom-missing',
       body: { subscription_id: subscriptionId },
       headers: baseHeaders, ip: '',
     } as any);
@@ -413,7 +408,7 @@ async function ensureLocalSubscription(opts: {
 
   if (!companyId) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-parse-miss',
+      provider: 'efi', received_at: nowIso(), event_type: 'custom-parse-miss',
       body: { subscription_id: subscriptionId, raw: String(custom) },
       headers: baseHeaders, ip: '',
     } as any);
@@ -426,76 +421,72 @@ async function ensureLocalSubscription(opts: {
       .select('id')
       .eq('slug', parsed.planSlug)
       .maybeSingle();
-    planId = planRow?.id ?? null;
+    planId = planRow?.id ?? null; // pode ser null; seu schema permite
   }
 
-  // IMPORTANTE: upsert por efi_subscription_id, SEM tentar “reaproveitar” linha da empresa
-  // dentro de ensureLocalSubscription, troque este trecho:
+  // payload da nova assinatura local
+  const row = {
+    company_id: companyId,
+    plan_id: planId,
+    efi_subscription_id: Number(subscriptionId),
+    status: 'waiting' as const,
+    started_at: null,
+    actual_plan: 'no' as const,
+    updated_at: nowIso(),
+  };
 
-// dentro de ensureLocalSubscription, troque este trecho:
+  // 1) tenta INSERT puro
+  const ins = await supabaseAdmin
+    .from('subscriptions')
+    .insert(row)
+    .select('id, company_id, plan_id, status, started_at')
+    .maybeSingle();
 
-const row = {
-  company_id: companyId,
-  plan_id: planId,
-  efi_subscription_id: Number(subscriptionId),
-  status: 'waiting',
-  started_at: null,
-  actual_plan: 'no' as const,
-  updated_at: new Date().toISOString(),
-};
-
-// 1) tenta INSERT puro
-const ins = await supabaseAdmin
-  .from('subscriptions')
-  .insert(row)
-  .select('id, company_id, plan_id, status, started_at')
-  .maybeSingle();
-
-if (ins.data) {
-  await supabaseAdmin.from('payment_webhook_log').insert({
-    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
-    body: { mode: 'insert', subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
-    headers: baseHeaders, ip: '',
-  } as any);
-  return ins.data;
-}
-
-// 2) se deu erro, trata duplicate (23505) e seleciona
-if (ins.error) {
-  if (ins.error.code === '23505') {
-    const sel = await supabaseAdmin
-      .from('subscriptions')
-      .select('id, company_id, plan_id, status, started_at')
-      .eq('efi_subscription_id', Number(subscriptionId))
-      .maybeSingle();
-
+  if (ins.data) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-exists',
-      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId, found: !!sel.data },
+      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-sub',
+      body: { mode: 'insert', subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
       headers: baseHeaders, ip: '',
     } as any);
-
-    if (sel.data) return sel.data;
+    return ins.data as { id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null };
   }
 
+  // 2) se deu erro, trata duplicate (23505) e seleciona
+  if (ins.error) {
+    if (ins.error.code === '23505') {
+      const sel = await supabaseAdmin
+        .from('subscriptions')
+        .select('id, company_id, plan_id, status, started_at')
+        .eq('efi_subscription_id', Number(subscriptionId))
+        .maybeSingle();
+
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi', received_at: nowIso(), event_type: 'autocreate-exists',
+        body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId, found: !!sel.data },
+        headers: baseHeaders, ip: '',
+      } as any);
+
+      if (sel.data) return sel.data as { id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null };
+    }
+
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-error',
+      body: { subscription_id: subscriptionId, message: ins.error.message, code: ins.error.code, details: ins.error.details ?? null },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return null;
+  }
+
+  // 3) fallback raro
   await supabaseAdmin.from('payment_webhook_log').insert({
-    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
-    body: { subscription_id: subscriptionId, message: ins.error.message, code: ins.error.code, details: ins.error.details ?? null },
+    provider: 'efi', received_at: nowIso(), event_type: 'autocreate-null',
+    body: { subscription_id: subscriptionId, note: 'insert retornou sem data nem erro' },
     headers: baseHeaders, ip: '',
   } as any);
   return null;
 }
 
-// 3) fallback raro
-await supabaseAdmin.from('payment_webhook_log').insert({
-  provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-null',
-  body: { subscription_id: subscriptionId, note: 'insert retornou sem data nem erro' },
-  headers: baseHeaders, ip: '',
-} as any);
-return null;
-
-
-
+// ======================= HANDLER =======================
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('x-instance', `${process.env.VERCEL_REGION || 'local'}`);
@@ -668,7 +659,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const isCanceled = ['canceled', 'cancelled'].includes(chargeStatus);
 
   const shouldMarkCurrent =
-    // regra pedida: marcar YES para o id do checkout (inclusive waiting),
+    // regra: marcar YES para o id do checkout (inclusive waiting),
     // exceto se veio evento claro de falha/cancelamento
     !isFailed && !isCanceled;
 
@@ -728,9 +719,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // waiting/no-op
     }
 
-    // 8) *** NOVO: alternância do actual_plan ***
-    // regra: colocar YES para o ID desta assinatura (inclui waiting),
-    // e NO para a que estava YES antes; se não houver YES ainda, marca YES nesta.
+    // 8) alternância do actual_plan
     if (shouldMarkCurrent) {
       await switchActualPlanForCompany({
         company_id: sub.company_id!,
@@ -754,5 +743,4 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   return res.status(200).json({ ok: true });
-}
 }
