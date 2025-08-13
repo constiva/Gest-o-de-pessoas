@@ -9,7 +9,7 @@ type Ok = {
   new_subscription_id: number;
   new_charge_id?: number | null;
   new_status?: string;
-  canceled_old?: { efi_subscription_id?: number | null; ok: boolean };
+  canceled_old?: { efi_subscription_id?: number | null; ok: boolean; count?: number };
 };
 type Fail = { stage: string; error: string; hint?: string; details?: any };
 
@@ -85,7 +85,7 @@ async function makeEfiApi() {
   return new (EfiPay as any)(opts);
 }
 
-// ---------- Cancel helpers (NOVO) ----------
+// ---------- Cancel helpers (ATUALIZADO) ----------
 
 // Cancela 1 assinatura na Efí (ignora erros "benignos")
 async function cancelOnEfi(api: any, efiId: number) {
@@ -100,8 +100,8 @@ async function cancelOnEfi(api: any, efiId: number) {
 }
 
 /**
- * Cancela TODAS as assinaturas antigas da empresa (actual_plan='no' e status != 'canceled'),
- * exceto a recém-criada (keepEfiId).
+ * Cancela TODAS as assinaturas antigas da empresa (status != 'canceled'),
+ * exceto a recém-criada (keepEfiId). **Removido** o filtro por actual_plan.
  */
 async function cleanupOldEfiSubscriptions(opts: {
   api: any;
@@ -110,15 +110,27 @@ async function cleanupOldEfiSubscriptions(opts: {
 }) {
   const { api, company_id, keepEfiId } = opts;
 
-  const { data: oldSubs } = await supabaseAdmin
+  const { data: oldSubs, error } = await supabaseAdmin
     .from('subscriptions')
-    .select('id, efi_subscription_id, status, actual_plan')
+    .select('id, efi_subscription_id, status')
     .eq('company_id', company_id)
     .neq('status', 'canceled')
-    .eq('actual_plan', 'no')
     .not('efi_subscription_id', 'is', null);
 
-  if (!oldSubs?.length) return;
+  // auditoria do cenário "nada para limpar"
+  if (error || !oldSubs?.length) {
+    try {
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'cleanup-scan',
+        body: { company_id, count: oldSubs?.length ?? 0, keepEfiId, error: error?.message },
+        headers: {},
+        ip: '',
+      } as any);
+    } catch {}
+    return;
+  }
 
   for (const row of oldSubs) {
     const efiId = Number(row.efi_subscription_id);
@@ -150,6 +162,7 @@ async function cleanupOldEfiSubscriptions(opts: {
         error: res.error,
         status: res.status,
         data: res.data,
+        skipped: efiId === Number(keepEfiId),
       },
       headers: {},
       ip: '',
@@ -174,15 +187,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
   let stage: Ok['stage'] = STAGES.INIT;
 
   try {
-    // Body esperado (mesma estrutura do subscribe para reuso)
     const {
-      company_id,                // uuid da empresa (do usuário autenticado)
-      plan_id,                   // uuid do novo plano
-      payment_token,             // token do cartão da Efí
-      customer,                  // { name, email, cpf, phone_number, birth }
-      billing_address,           // { street, number, neighborhood, zipcode, city, state }
-      metadata,                  // opcional { custom_id, notification_url }
-      item,                      // opcional override: { name, value, amount }
+      company_id,
+      plan_id,
+      payment_token,
+      customer,          // { name, email, cpf, phone_number, birth }
+      billing_address,   // { street, number, neighborhood, zipcode, city, state }
+      metadata,          // opcional { custom_id, notification_url }
+      item,              // opcional override: { name, value, amount }
     } = req.body || {};
 
     // Campos obrigatórios
@@ -227,33 +239,59 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       efiPlanId = created?.data?.plan_id ?? created?.plan_id;
       if (!efiPlanId) return res.status(500).json({ stage, error: 'Falha ao criar plano na Efí.' });
 
-      // salva no plano
       await supabaseAdmin.from('plans').update({ efi_plan_id: efiPlanId }).eq('id', plan_id);
     }
 
-    // 3) Cancela assinatura atual (se existir)
+    // 3) CANCEL_OLD (ATUALIZADO): cancela TODAS as subs ≠ 'canceled' desta empresa antes de criar a nova
     stage = STAGES.CANCEL_OLD;
-    let canceledOld: Ok['canceled_old'] | undefined;
-    const { data: oldSub } = await supabaseAdmin
-      .from('subscriptions')
-      .select('id, efi_subscription_id, status')
-      .eq('company_id', company_id)
-      .eq('status', 'active')
-      .maybeSingle();
-
-    if (oldSub && oldSub.efi_subscription_id) {
-      try {
-        await (api as any).cancelSubscription({ id: Number(oldSub.efi_subscription_id) });
-      } catch { /* se falhar aqui, o webhook também tenta mais tarde */ }
-      await supabaseAdmin
+    let canceledOld: Ok['canceled_old'] | undefined = { ok: true, count: 0 };
+    try {
+      const { data: olds } = await supabaseAdmin
         .from('subscriptions')
-        .update({ status: 'canceled', canceled_at: new Date().toISOString(), updated_at: new Date().toISOString() })
-        .eq('id', oldSub.id);
+        .select('id, efi_subscription_id, status')
+        .eq('company_id', company_id)
+        .neq('status', 'canceled')
+        .not('efi_subscription_id', 'is', null);
 
-      canceledOld = { ok: true, efi_subscription_id: Number(oldSub.efi_subscription_id) };
-    }
+      if (olds?.length) {
+        for (const row of olds) {
+          const efiId = Number(row.efi_subscription_id);
+          if (!efiId) continue;
 
-    // 4) Cria a nova assinatura na Efí (rota usa o id do plano na URL)
+          const resCancel = await cancelOnEfi(api, efiId);
+
+          if (resCancel.ok) {
+            await supabaseAdmin.from('subscriptions').update({
+              status: 'canceled',
+              canceled_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }).eq('id', row.id);
+          }
+
+          canceledOld = { ok: resCancel.ok, efi_subscription_id: efiId, count: (canceledOld?.count ?? 0) + (resCancel.ok ? 1 : 0) };
+
+          await supabaseAdmin.from('payment_webhook_log').insert({
+            provider: 'efi',
+            received_at: new Date().toISOString(),
+            event_type: 'pre-create-cancel',
+            body: { company_id, efi_subscription_id: efiId, ok: resCancel.ok, status: resCancel.status, error: resCancel.error, data: resCancel.data },
+            headers: {},
+            ip: '',
+          } as any);
+        }
+      } else {
+        await supabaseAdmin.from('payment_webhook_log').insert({
+          provider: 'efi',
+          received_at: new Date().toISOString(),
+          event_type: 'pre-create-cancel-scan',
+          body: { company_id, count: 0 },
+          headers: {},
+          ip: '',
+        } as any);
+      }
+    } catch {}
+
+    // 4) Cria a nova assinatura na Efí
     stage = STAGES.CREATE_SUB;
     const valueCents = Number(item?.value ?? planPriceCents);
     const amount = Number(item?.amount ?? 1);
@@ -261,7 +299,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(400).json({ stage, error: 'Valor do plano inválido (price_cents).' });
     }
 
-    // Sempre envie custom_id e notification_url (fallback pelo .env)
     const customId = sanitizeCustomId(`company:${company_id}|plan:${planSlug}`);
     const webhookUrlFromEnv = process.env.EFI_WEBHOOK_URL && isHttps(process.env.EFI_WEBHOOK_URL)
       ? String(process.env.EFI_WEBHOOK_URL)
@@ -285,7 +322,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(500).json({ stage, error: 'Assinatura não retornou subscription_id.' });
     }
 
-    // 5) Insere localmente a row de subscriptions (status 'waiting') ANTES de definir o pagamento
+    // 5) Insere localmente ANTES de definir o pagamento
     stage = STAGES.INSERT_LOCAL;
     const insertLocal = await supabaseAdmin
       .from('subscriptions')
@@ -301,7 +338,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       .single();
 
     if (insertLocal.error) {
-      // Se der conflito, tenta localizar a row (pode ter sido criada por corrida do webhook)
       const { data: maybeRow } = await supabaseAdmin
         .from('subscriptions')
         .select('id')
@@ -309,7 +345,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         .maybeSingle();
 
       if (!maybeRow) {
-        // Logar o erro para diagnóstico
         try {
           await supabaseAdmin.from('payment_webhook_log').insert({
             provider: 'efi',
@@ -350,7 +385,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const newChargeId: number | null = payResp?.data?.charge_id ?? payResp?.charge_id ?? null;
     const newStatus: string | undefined = payResp?.data?.status ?? payResp?.status ?? undefined;
 
-    // 7) (NOVO) Cancela todas as antigas com actual_plan='no'
+    // 7) Cleanup final — cancela o que sobrou ≠ canceled e ≠ a recém-criada
     try {
       await cleanupOldEfiSubscriptions({
         api,
