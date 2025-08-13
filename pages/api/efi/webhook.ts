@@ -240,7 +240,7 @@ async function ensureLocalSubscription(opts: {
   }
   if (!companyId) return null;
 
-  // 1) tenta inserir
+  // 1) tenta inserir (status waiting não conflita com unique em status=active)
   const ins = await supabaseAdmin
     .from('subscriptions')
     .insert({
@@ -263,7 +263,7 @@ async function ensureLocalSubscription(opts: {
     return ins.data;
   }
 
-  // 2) se falhou (ex.: violação de unique por company), tenta reaproveitar uma linha existente da empresa
+  // 2) se falhou (ex.: outra linha existente), reaproveita a mais recente da empresa
   const { data: anySubOfCompany } = await supabaseAdmin
     .from('subscriptions')
     .select('id, company_id, plan_id, status, started_at')
@@ -273,7 +273,6 @@ async function ensureLocalSubscription(opts: {
 
   if (anySubOfCompany && anySubOfCompany.length) {
     const chosen = anySubOfCompany[0];
-    // Atualiza essa linha para representar a nova assinatura
     const upd = await supabaseAdmin
       .from('subscriptions')
       .update({
@@ -455,66 +454,86 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  const isPaid = status === 'paid' || status === 'active' || status === 'confirmed';
-  const isFailed = ['unpaid', 'failed', 'charge_failed'].includes(status);
-  const isCanceled = ['canceled', 'cancelled'].includes(status);
+  // ---------- NOVO: separar status de charge e estado real da subscription ----------
+  let chargeStatus = status; // status do evento/charge
+  let subIsActiveFromDetail = false;
+  let lastChargeIdFromDetail: number | null = null;
+
+  if (chargeStatus === 'waiting' && subscriptionId) {
+    try {
+      const api = await makeEfiApi();
+      if (api) {
+        const det = await detailSubscription(api, subscriptionId);
+        const detStatus = extractStatus(det?.status);
+        subIsActiveFromDetail = detStatus === 'active' || detStatus === 'confirmed';
+        const detCharges = det?.charges;
+        if (Array.isArray(detCharges) && detCharges.length) {
+          const lc = detCharges[detCharges.length - 1];
+          lastChargeIdFromDetail = Number(lc?.charge_id ?? lc?.id ?? null) || null;
+        }
+      }
+    } catch {}
+  }
+
+  const txStatus: 'waiting' | 'paid' | 'failed' =
+    (chargeStatus === 'paid' || chargeStatus === 'confirmed') ? 'paid' :
+    (['unpaid', 'failed', 'charge_failed'].includes(chargeStatus)) ? 'failed' : 'waiting';
+
+  const shouldActivateSubscription =
+    chargeStatus === 'active' || chargeStatus === 'paid' || chargeStatus === 'confirmed' || subIsActiveFromDetail;
+
+  const isFailed = txStatus === 'failed';
+  const isCanceled = ['canceled', 'cancelled'].includes(chargeStatus);
 
   try {
     // 6) Transação (registrar waiting/paid)
     let amountCents = 0;
 
-    if (chargeId) {
+    // preferir o charge do evento; senão, o descoberto no detail
+    let effectiveChargeId: number | null = chargeId ? Number(chargeId) : (lastChargeIdFromDetail ?? null);
+
+    // Se ainda não temos chargeId e o evento não era "waiting", tenta descobrir via detailSubscription
+    if (!effectiveChargeId) {
       const api = await makeEfiApi();
       if (api) {
-        const ch = await detailCharge(api, chargeId);
+        const det = await detailSubscription(api, subscriptionId);
+        const lastCharge = Array.isArray(det?.charges) && det.charges.length ? det.charges[det.charges.length - 1] : null;
+        effectiveChargeId = Number(lastCharge?.charge_id ?? lastCharge?.id ?? null) || null;
+      }
+    }
+
+    if (effectiveChargeId) {
+      const api = await makeEfiApi();
+      if (api) {
+        const ch = await detailCharge(api, effectiveChargeId);
         amountCents = extractAmountCentsFromCharge(ch);
       }
       if (!amountCents) amountCents = await getPlanPriceCents(sub.plan_id);
 
       await upsertTransaction({
         company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
-        efi_subscription_id: subscriptionId, efi_charge_id: chargeId,
-        status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
+        efi_subscription_id: subscriptionId, efi_charge_id: effectiveChargeId,
+        status: txStatus,
         amount_cents: amountCents,
       });
 
       await supabaseAdmin.from('subscriptions')
-        .update({ last_charge_id: Number(chargeId), updated_at: new Date().toISOString() })
+        .update({ last_charge_id: Number(effectiveChargeId), updated_at: new Date().toISOString() })
         .eq('id', sub.id);
 
     } else {
-      // Evento sem charge_id: tenta descobrir o último charge pela assinatura
-      const api = await makeEfiApi();
-      if (api) {
-        const det = await detailSubscription(api, subscriptionId);
-        const lastCharge = Array.isArray(det?.charges) && det.charges.length ? det.charges[det.charges.length - 1] : null;
-        const lastChargeId = lastCharge?.charge_id ?? lastCharge?.id ?? null;
-        if (lastChargeId) {
-          amountCents = extractAmountCentsFromCharge(lastCharge) || await getPlanPriceCents(sub.plan_id);
-          await upsertTransaction({
-            company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
-            efi_subscription_id: subscriptionId, efi_charge_id: lastChargeId,
-            status: isPaid ? 'paid' : isFailed ? 'failed' : 'waiting',
-            amount_cents: amountCents,
-          });
-          await supabaseAdmin.from('subscriptions')
-            .update({ last_charge_id: Number(lastChargeId), updated_at: new Date().toISOString() })
-            .eq('id', sub.id);
-        } else if (isPaid || status === 'waiting') {
-          // cria registro “sem charge” (sentinela) para histórico
-          amountCents = await getPlanPriceCents(sub.plan_id);
-          await upsertTransaction({
-            company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
-            efi_subscription_id: subscriptionId, efi_charge_id: null,
-            status: isPaid ? 'paid' : 'waiting',
-            amount_cents: amountCents,
-          });
-        }
-      }
+      // Sem charge_id conhecido: cria registro “sentinela”, mantendo o status da CHARGE
+      amountCents = await getPlanPriceCents(sub.plan_id);
+      await upsertTransaction({
+        company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
+        efi_subscription_id: subscriptionId, efi_charge_id: null,
+        status: txStatus === 'paid' ? 'paid' : 'waiting',
+        amount_cents: amountCents,
+      });
     }
 
     // 7) Atualiza status da assinatura e empresa
-    if (isPaid) {
+    if (shouldActivateSubscription) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
         started_at: sub.started_at ?? new Date().toISOString(),
@@ -537,7 +556,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
-        body: { action: 'activate', subscription_id: subscriptionId, charge_id: chargeId, company_id: sub.company_id, plan_id: sub.plan_id },
+        body: { action: 'activate', subscription_id: subscriptionId, charge_id: effectiveChargeId, company_id: sub.company_id, plan_id: sub.plan_id },
         headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isFailed) {
@@ -547,7 +566,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
-        body: { action: 'overdue', subscription_id: subscriptionId, charge_id: chargeId },
+        body: { action: 'overdue', subscription_id: subscriptionId, charge_id: effectiveChargeId },
         headers: base.headers, ip: String(base.ip || ''),
       } as any);
     } else if (isCanceled) {
@@ -569,7 +588,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } else {
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi', received_at: new Date().toISOString(), event_type: 'no-op',
-        body: { status }, headers: base.headers, ip: String(base.ip || ''),
+        body: { status: chargeStatus }, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
   } catch (e: any) {
