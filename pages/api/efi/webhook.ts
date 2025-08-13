@@ -432,6 +432,8 @@ async function ensureLocalSubscription(opts: {
   // IMPORTANTE: upsert por efi_subscription_id, SEM tentar “reaproveitar” linha da empresa
   // dentro de ensureLocalSubscription, troque este trecho:
 
+// dentro de ensureLocalSubscription, troque este trecho:
+
 const row = {
   company_id: companyId,
   plan_id: planId,
@@ -443,54 +445,55 @@ const row = {
 };
 
 // 1) tenta INSERT puro
-  const ins = await supabaseAdmin
-    .from('subscriptions')
-    .insert(row)
-    .select('id, company_id, plan_id, status, started_at')
-    .maybeSingle();
+const ins = await supabaseAdmin
+  .from('subscriptions')
+  .insert(row)
+  .select('id, company_id, plan_id, status, started_at')
+  .maybeSingle();
 
-  if (ins.data) {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
-      body: { mode: 'insert', subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
-      headers: baseHeaders, ip: '',
-    } as any);
-    return ins.data;
-  }
-
-  // 2) se deu erro, trata duplicate (23505) e seleciona
-  if (ins.error) {
-    if (ins.error.code === '23505') {
-      const sel = await supabaseAdmin
-        .from('subscriptions')
-        .select('id, company_id, plan_id, status, started_at')
-        .eq('efi_subscription_id', Number(subscriptionId))
-        .maybeSingle();
-
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-exists',
-        body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId, found: !!sel.data },
-        headers: baseHeaders, ip: '',
-      } as any);
-
-      if (sel.data) return sel.data;
-    }
-
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
-      body: { subscription_id: subscriptionId, message: ins.error.message, code: ins.error.code, details: ins.error.details ?? null },
-      headers: baseHeaders, ip: '',
-    } as any);
-    return null;
-  }
-
-  // 3) fallback raro
+if (ins.data) {
   await supabaseAdmin.from('payment_webhook_log').insert({
-    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-null',
-    body: { subscription_id: subscriptionId, note: 'insert retornou sem data nem erro' },
+    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
+    body: { mode: 'insert', subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
+    headers: baseHeaders, ip: '',
+  } as any);
+  return ins.data;
+}
+
+// 2) se deu erro, trata duplicate (23505) e seleciona
+if (ins.error) {
+  if (ins.error.code === '23505') {
+    const sel = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, company_id, plan_id, status, started_at')
+      .eq('efi_subscription_id', Number(subscriptionId))
+      .maybeSingle();
+
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-exists',
+      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId, found: !!sel.data },
+      headers: baseHeaders, ip: '',
+    } as any);
+
+    if (sel.data) return sel.data;
+  }
+
+  await supabaseAdmin.from('payment_webhook_log').insert({
+    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+    body: { subscription_id: subscriptionId, message: ins.error.message, code: ins.error.code, details: ins.error.details ?? null },
     headers: baseHeaders, ip: '',
   } as any);
   return null;
+}
+
+// 3) fallback raro
+await supabaseAdmin.from('payment_webhook_log').insert({
+  provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-null',
+  body: { subscription_id: subscriptionId, note: 'insert retornou sem data nem erro' },
+  headers: baseHeaders, ip: '',
+} as any);
+return null;
+
 
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
@@ -751,4 +754,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   return res.status(200).json({ ok: true });
+}
 }
