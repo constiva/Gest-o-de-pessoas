@@ -98,7 +98,7 @@ async function installAxiosDebug() {
       if (err.response) {
         const full = (err.config?.baseURL || '') + (err.config?.url || '');
         console.error('[EFI][AXIOS][RES ERR]', err.response.status, full);
-        console.error('[EFI][AXIOS][RES ERR DATA]', util.inspect(err.response.data, { depth: 8 }));
+        console.error('[EFI][AXIOS][RES ERR DATA]', util.inspect(err.response.data, { depth: 8 })));
       } else {
         console.error('[EFI][AXIOS][RES ERR no-response]', util.inspect(err, { depth: 8 }));
       }
@@ -177,6 +177,92 @@ async function probeOAuthBoth(sandbox: boolean, clientId: string, clientSecret: 
   }
 }
 // --------------------------------------------
+
+/* ===================== NOVO: helpers de cancelamento ===================== */
+
+// Cancela 1 assinatura na Efí (erros 400/404/409 são considerados “benignos”)
+async function cancelOnEfi(api: any, efiId: number) {
+  try {
+    await api.cancelSubscription({ id: Number(efiId) }); // PUT /v1/subscription/:id/cancel
+    return { ok: true };
+  } catch (e: any) {
+    const status = e?.response?.status ?? 0;
+    const benign = [400, 404, 409];
+    return { ok: benign.includes(status), error: e?.message, status, data: e?.response?.data };
+  }
+}
+
+/**
+ * Cancela TODAS as assinaturas ≠ 'canceled' da empresa, exceto a recém-criada (keepEfiId).
+ * (Sem depender de actual_plan.)
+ */
+async function cleanupOldEfiSubscriptions(opts: {
+  api: any;
+  company_id: string;
+  keepEfiId: number;
+}) {
+  const { api, company_id, keepEfiId } = opts;
+
+  const { data: oldSubs, error } = await supabase
+    .from('subscriptions')
+    .select('id, efi_subscription_id, status')
+    .eq('company_id', company_id)
+    .neq('status', 'canceled')
+    .not('efi_subscription_id', 'is', null);
+
+  // auditoria do scan
+  try {
+    await supabase.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'cleanup-scan',
+      body: { company_id, count: oldSubs?.length ?? 0, keepEfiId, error: error?.message },
+      headers: {},
+      ip: '',
+    } as any);
+  } catch {}
+
+  if (error || !oldSubs?.length) return;
+
+  for (const row of oldSubs) {
+    const efiId = Number(row.efi_subscription_id);
+    if (!efiId || efiId === Number(keepEfiId)) continue;
+
+    const res = await cancelOnEfi(api, efiId);
+
+    // marca como cancelada localmente se OK/benigno
+    if (res.ok) {
+      await supabase
+        .from('subscriptions')
+        .update({
+          status: 'canceled',
+          canceled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+    }
+
+    // auditoria por item
+    try {
+      await supabase.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: new Date().toISOString(),
+        event_type: 'cleanup-cancel-old',
+        body: {
+          company_id,
+          efi_subscription_id: efiId,
+          ok: res.ok,
+          error: res.error,
+          status: res.status,
+          data: res.data,
+        },
+        headers: {},
+        ip: '',
+      } as any);
+    } catch {}
+  }
+}
+/* ======================================================================= */
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<Ok | Fail>) {
   if (req.method !== 'POST') {
@@ -317,6 +403,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     await probeOAuthBoth(sandbox, clientId, clientSecret);
 
     // instancia SDK
+    const { EfiPay: EfiPayCtor } = await getEfiSdk(); // já temos acima, mas mantive a sua estrutura
     const options: any = {
       sandbox,
       client_id: clientId,
@@ -326,7 +413,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       certificate,
     };
     if (certPass) options.certificate_key = certPass;
-    const api = new (EfiPay as any)(options);
+    const api = new (EfiPayCtor as any)(options);
 
     // 1) Plano
     stage = STAGES.CREATE_PLAN;
@@ -513,6 +600,28 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       );
     }
     // --------------------------------------
+
+    /* ===================== NOVO: cleanup pós-criação ===================== */
+    try {
+      await cleanupOldEfiSubscriptions({
+        api,
+        company_id,
+        keepEfiId: subscription_id,
+      });
+    } catch (e) {
+      // só audita; não falha o fluxo de checkout
+      try {
+        await supabase.from('payment_webhook_log').insert({
+          provider: 'efi',
+          received_at: new Date().toISOString(),
+          event_type: 'cleanup-error',
+          body: { company_id, keepEfiId: subscription_id, message: (e as any)?.message || String(e) },
+          headers: {},
+          ip: '',
+        } as any);
+      } catch {}
+    }
+    /* ==================================================================== */
 
     return res.status(200).json({ subscription_id, charge_id: chargeId, status: subsStatus, stage: STAGES.DEFINE_PAY });
   } catch (e: any) {
