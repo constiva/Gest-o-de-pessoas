@@ -85,6 +85,78 @@ async function makeEfiApi() {
   return new (EfiPay as any)(opts);
 }
 
+// ---------- Cancel helpers (NOVO) ----------
+
+// Cancela 1 assinatura na Efí (ignora erros "benignos")
+async function cancelOnEfi(api: any, efiId: number) {
+  try {
+    await api.cancelSubscription({ id: Number(efiId) }); // Efí: PUT /v1/subscription/:id/cancel
+    return { ok: true };
+  } catch (e: any) {
+    const status = e?.response?.status ?? 0;
+    const benign = [400, 404, 409]; // já cancelada/não encontrada/conflito, etc.
+    return { ok: benign.includes(status), error: e?.message, status, data: e?.response?.data };
+  }
+}
+
+/**
+ * Cancela TODAS as assinaturas antigas da empresa (actual_plan='no' e status != 'canceled'),
+ * exceto a recém-criada (keepEfiId).
+ */
+async function cleanupOldEfiSubscriptions(opts: {
+  api: any;
+  company_id: string;
+  keepEfiId: number;
+}) {
+  const { api, company_id, keepEfiId } = opts;
+
+  const { data: oldSubs } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, efi_subscription_id, status, actual_plan')
+    .eq('company_id', company_id)
+    .neq('status', 'canceled')
+    .eq('actual_plan', 'no')
+    .not('efi_subscription_id', 'is', null);
+
+  if (!oldSubs?.length) return;
+
+  for (const row of oldSubs) {
+    const efiId = Number(row.efi_subscription_id);
+    if (!efiId || efiId === Number(keepEfiId)) continue;
+
+    const res = await cancelOnEfi(api, efiId);
+
+    // marca como cancelada localmente se OK/benigno
+    if (res.ok) {
+      await supabaseAdmin
+        .from('subscriptions')
+        .update({
+          status: 'canceled',
+          canceled_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', row.id);
+    }
+
+    // auditoria
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: new Date().toISOString(),
+      event_type: 'cleanup-cancel-old',
+      body: {
+        company_id,
+        efi_subscription_id: efiId,
+        ok: res.ok,
+        error: res.error,
+        status: res.status,
+        data: res.data,
+      },
+      headers: {},
+      ip: '',
+    } as any);
+  }
+}
+
 // ---------- Handler ----------
 const STAGES = {
   INIT: 'init',
@@ -277,6 +349,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const payResp = await (api as any).defineSubscriptionPayMethod({ id: Number(newSubscriptionId) }, payBody);
     const newChargeId: number | null = payResp?.data?.charge_id ?? payResp?.charge_id ?? null;
     const newStatus: string | undefined = payResp?.data?.status ?? payResp?.status ?? undefined;
+
+    // 7) (NOVO) Cancela todas as antigas com actual_plan='no'
+    try {
+      await cleanupOldEfiSubscriptions({
+        api,
+        company_id,
+        keepEfiId: newSubscriptionId,
+      });
+    } catch {}
 
     return res.status(200).json({
       stage,
