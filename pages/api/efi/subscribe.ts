@@ -98,7 +98,7 @@ async function installAxiosDebug() {
       if (err.response) {
         const full = (err.config?.baseURL || '') + (err.config?.url || '');
         console.error('[EFI][AXIOS][RES ERR]', err.response.status, full);
-        console.error('[EFI][AXIOS][RES ERR DATA]', util.inspect(err.response.data, { depth: 8 })));
+        console.error('[EFI][AXIOS][RES ERR DATA]', util.inspect(err.response.data, { depth: 8 }));
       } else {
         console.error('[EFI][AXIOS][RES ERR no-response]', util.inspect(err, { depth: 8 }));
       }
