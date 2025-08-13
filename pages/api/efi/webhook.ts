@@ -371,6 +371,7 @@ async function upsertTransaction({
 }
 
 // ---------- Auto-create SEM reaproveitar linha ----------
+// ---------- Auto-create via upsert (sempre cria nova linha por efi_subscription_id) ----------
 async function ensureLocalSubscription(opts: {
   subscriptionId: string;
   customFromEvent?: string | null;
@@ -379,14 +380,27 @@ async function ensureLocalSubscription(opts: {
   const { subscriptionId, customFromEvent, baseHeaders } = opts;
 
   const api = await makeEfiApi();
-  if (!api) return null;
+  if (!api) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+      body: { subscription_id: subscriptionId, reason: 'missing-sdk-or-creds' },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return null;
+  }
 
-  const detail = await detailSubscription(api, subscriptionId);
-  const custom = (detail?.metadata?.custom_id ?? customFromEvent) || null;
+  // tenta pegar o custom_id do detail; se falhar, usa o do evento
+  let custom: string | null = null;
+  try {
+    const detail = await detailSubscription(api, subscriptionId);
+    custom = (detail?.metadata?.custom_id ?? customFromEvent) || null;
+  } catch {
+    custom = customFromEvent || null;
+  }
 
   if (!custom) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: nowIso(), event_type: 'custom-missing',
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-missing',
       body: { subscription_id: subscriptionId },
       headers: baseHeaders, ip: '',
     } as any);
@@ -399,7 +413,7 @@ async function ensureLocalSubscription(opts: {
 
   if (!companyId) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: nowIso(), event_type: 'custom-parse-miss',
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-parse-miss',
       body: { subscription_id: subscriptionId, raw: String(custom) },
       headers: baseHeaders, ip: '',
     } as any);
@@ -415,52 +429,55 @@ async function ensureLocalSubscription(opts: {
     planId = planRow?.id ?? null;
   }
 
-  // tenta inserir NOVA linha (sem reaproveitar)
+  // IMPORTANTE: upsert por efi_subscription_id, SEM tentar “reaproveitar” linha da empresa
+  const row = {
+    company_id: companyId,
+    plan_id: planId,                         // pode ser null se plano não foi mapeado
+    efi_subscription_id: Number(subscriptionId),
+    status: 'waiting',
+    started_at: null,
+    actual_plan: 'no' as const,              // sempre 'no' na criação; quem ativa muda pra 'yes'
+    updated_at: new Date().toISOString(),
+  };
+
   const ins = await supabaseAdmin
     .from('subscriptions')
-    .insert({
-      company_id: companyId,
-      plan_id: planId,
-      efi_subscription_id: Number(subscriptionId),
-      status: 'waiting',
-      actual_plan: 'no', // novo padrão: começa como "no"
-      started_at: null,
-      updated_at: nowIso(),
-    } as any)
-    .select('id, company_id, plan_id, status, started_at, actual_plan')
+    .upsert(row, { onConflict: 'efi_subscription_id' })
+    .select('id, company_id, plan_id, status, started_at')
     .maybeSingle();
+
+  if (ins.error) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
+      body: {
+        subscription_id: subscriptionId,
+        company_id: companyId,
+        plan_id: planId,
+        message: ins.error.message,
+        details: ins.error.details ?? null,
+        code: ins.error.code ?? null,
+        hint: 'verifique constraints únicas (company_id), NOT NULL em plan_id e índice parcial de actual_plan'
+      },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return null;
+  }
 
   if (ins.data) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-sub',
-      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
+      body: { mode: 'upsert', subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
       headers: baseHeaders, ip: '',
     } as any);
-    return ins.data;
+    return ins.data as { id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null };
   }
 
-  // se falhou (ex.: unique por efi_subscription_id), tenta pegar a já existente
-  const existing = await supabaseAdmin
-    .from('subscriptions')
-    .select('id, company_id, plan_id, status, started_at, actual_plan')
-    .eq('efi_subscription_id', Number(subscriptionId))
-    .maybeSingle();
-
-  if (existing.data) {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-dup-use-existing',
-      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
-      headers: baseHeaders, ip: '',
-    } as any);
-    return existing.data;
-  }
-
+  // fallback – não deveria chegar aqui, mas loga se acontecer
   await supabaseAdmin.from('payment_webhook_log').insert({
-    provider: 'efi', received_at: nowIso(), event_type: 'autocreate-error',
-    body: { subscription_id: subscriptionId, error: ins.error?.message },
+    provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-null',
+    body: { subscription_id: subscriptionId, note: 'upsert retornou sem data nem erro' },
     headers: baseHeaders, ip: '',
   } as any);
-
   return null;
 }
 
