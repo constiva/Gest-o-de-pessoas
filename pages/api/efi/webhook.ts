@@ -20,6 +20,7 @@ function clearFile() { try { fs.writeFileSync(WEBHOOK_LOG, ''); } catch {} }
 
 const norm = (s?: string | null) => String(s ?? '').toLowerCase();
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const nowIso = () => new Date().toISOString();
 
 // ---------- SDK Efí helpers ----------
 function resolveCertPath(input?: string): string | null {
@@ -97,7 +98,7 @@ function pickEventFields(obj: any): ParsedEvent {
     obj?.metadata?.custom_id ??
     obj?.subscription?.metadata?.custom_id ??
     obj?.data?.metadata?.custom_id ??
-    obj?.data?.custom_id ?? // <— extra fallback
+    obj?.data?.custom_id ??
     obj?.custom_id ?? null;
 
   const status = extractStatus(statusRaw);
@@ -108,7 +109,7 @@ function pickEventFields(obj: any): ParsedEvent {
 // Aceita:
 // 1) "company:<uuid>|plan:<slug>"
 // 2) "uuid|slug"
-// 3) "uuid-slug" (slug pode ter hífens; puxa “o resto”)
+// 3) "uuid-slug" (slug pode ter hífens; pega “o resto”)
 // 4) JSON string: {"company":"<uuid>","plan":"<slug>"} (ou company_id / plan_slug)
 function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: string } {
   if (!raw) return {};
@@ -150,7 +151,7 @@ function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: st
     }
   }
 
-  // 3) "uuid-slug"  (slug = tudo após o UUID + hífen)
+  // 3) "uuid-slug"
   const m = s.match(/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-(.+)$/);
   if (m && isUuid(m[1]) && m[2]?.trim()) {
     return { companyId: m[1], planSlug: m[2].trim() };
@@ -167,20 +168,20 @@ async function findSubscriptionWithRetry(efiSubscriptionId: string, maxAttempts 
 
     let subRes = await supabaseAdmin
       .from('subscriptions')
-      .select('id, company_id, plan_id, status, started_at')
+      .select('id, company_id, plan_id, status, started_at, actual_plan')
       .eq('efi_subscription_id', efiSubscriptionId)
       .maybeSingle();
 
     if ((!subRes.data) && /^\d+$/.test(efiSubscriptionId)) {
       subRes = await supabaseAdmin
         .from('subscriptions')
-        .select('id, company_id, plan_id, status, started_at')
+        .select('id, company_id, plan_id, status, started_at, actual_plan')
         .eq('efi_subscription_id', Number(efiSubscriptionId))
         .maybeSingle();
     }
 
     if (subRes.data) return subRes.data as {
-      id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null;
+      id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null; actual_plan?: string | null;
     };
 
     const delay = Math.min(500 * Math.pow(1.35, attempt - 1), 1200);
@@ -217,6 +218,124 @@ async function getPlanPriceCents(plan_id: string | null): Promise<number> {
   return Number(data?.price_cents ?? 0) || 0;
 }
 
+// ---------- Atualização de 'actual_plan' e companies ----------
+async function switchActualPlanForCompany(opts: {
+  company_id: string;
+  new_subscription_id: string;
+  new_plan_id: string | null;
+  headers: any;
+}) {
+  const { company_id, new_subscription_id, new_plan_id, headers } = opts;
+
+  // 1) Desliga o que estiver como yes
+  await supabaseAdmin
+    .from('subscriptions')
+    .update({ actual_plan: 'no', updated_at: nowIso() })
+    .eq('company_id', company_id)
+    .eq('actual_plan', 'yes')
+    .neq('id', new_subscription_id);
+
+  // 2) Liga o novo como yes
+  await supabaseAdmin
+    .from('subscriptions')
+    .update({ actual_plan: 'yes', updated_at: nowIso() })
+    .eq('id', new_subscription_id);
+
+  await supabaseAdmin.from('payment_webhook_log').insert({
+    provider: 'efi',
+    received_at: nowIso(),
+    event_type: 'flag-switch',
+    body: { company_id, new_subscription_id },
+    headers, ip: ''
+  } as any);
+
+  // 3) Reflete na companies
+  if (new_plan_id) {
+    const { data: planRow } = await supabaseAdmin
+      .from('plans')
+      .select('slug, max_employees')
+      .eq('id', new_plan_id)
+      .maybeSingle();
+
+    if (planRow) {
+      await supabaseAdmin.from('companies').update({
+        plan: planRow.slug, maxemployees: planRow.max_employees ?? null
+      }).eq('id', company_id);
+
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: nowIso(),
+        event_type: 'company-plan-updated',
+        body: { company_id, via: 'actual_plan=yes', plan: planRow.slug },
+        headers, ip: ''
+      } as any);
+    }
+  } else {
+    // Se não tiver plan_id ainda, apenas deixa o flag pronto.
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi',
+      received_at: nowIso(),
+      event_type: 'company-plan-pending',
+      body: { company_id, reason: 'missing-plan-id-on-subscription' },
+      headers, ip: ''
+    } as any);
+  }
+}
+
+async function unsetCurrentIfMatchesAndFallback(opts: {
+  company_id: string;
+  subscription_id: string;
+  headers: any;
+}) {
+  const { company_id, subscription_id, headers } = opts;
+
+  const { data: subRow } = await supabaseAdmin
+    .from('subscriptions')
+    .select('id, actual_plan')
+    .eq('id', subscription_id)
+    .maybeSingle();
+
+  if (subRow?.actual_plan === 'yes') {
+    // Desliga a atual
+    await supabaseAdmin
+      .from('subscriptions')
+      .update({ actual_plan: 'no', updated_at: nowIso() })
+      .eq('id', subscription_id);
+
+    // Tenta achar substituta ativa mais recente
+    const { data: replacement } = await supabaseAdmin
+      .from('subscriptions')
+      .select('id, plan_id')
+      .eq('company_id', company_id)
+      .eq('status', 'active')
+      .order('started_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (replacement) {
+      await switchActualPlanForCompany({
+        company_id,
+        new_subscription_id: replacement.id,
+        new_plan_id: replacement.plan_id,
+        headers
+      });
+    } else {
+      // Sem substituta -> coloca empresa em free (espelho)
+      await supabaseAdmin.from('companies').update({
+        plan: 'free', maxemployees: 3
+      }).eq('id', company_id);
+
+      await supabaseAdmin.from('payment_webhook_log').insert({
+        provider: 'efi',
+        received_at: nowIso(),
+        event_type: 'company-fallback-free',
+        body: { company_id, reason: 'no-active-subscriptions' },
+        headers, ip: ''
+      } as any);
+    }
+  }
+}
+
 // ---------- Upsert de transaction (waiting/paid) ----------
 async function upsertTransaction({
   company_id, subscription_id, plan_id, efi_subscription_id, efi_charge_id, status, amount_cents, currency = 'BRL',
@@ -231,14 +350,12 @@ async function upsertTransaction({
     efi_subscription_id: efi_subscription_id ? Number(efi_subscription_id) : null,
     efi_charge_id: efi_charge_id ? Number(efi_charge_id) : null,
     status, amount_cents, currency,
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso(),
   };
 
   if (payload.efi_charge_id) {
-    // Conflito por efi_charge_id (único por cobrança)
     await supabaseAdmin.from('transactions').upsert(payload, { onConflict: 'efi_charge_id' });
   } else {
-    // Sem charge_id: evita duplicar criando uma “sentinela” por dia
     const { data: already } = await supabaseAdmin
       .from('transactions')
       .select('id')
@@ -253,7 +370,7 @@ async function upsertTransaction({
   }
 }
 
-// ---------- Auto-create/Auto-update de subscription ----------
+// ---------- Auto-create SEM reaproveitar linha ----------
 async function ensureLocalSubscription(opts: {
   subscriptionId: string;
   customFromEvent?: string | null;
@@ -269,7 +386,7 @@ async function ensureLocalSubscription(opts: {
 
   if (!custom) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-missing',
+      provider: 'efi', received_at: nowIso(), event_type: 'custom-missing',
       body: { subscription_id: subscriptionId },
       headers: baseHeaders, ip: '',
     } as any);
@@ -277,12 +394,12 @@ async function ensureLocalSubscription(opts: {
   }
 
   const parsed = parseCustomId(custom);
-  let companyId = parsed.companyId;
+  const companyId = parsed.companyId;
   let planId: string | null = null;
 
   if (!companyId) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-parse-miss',
+      provider: 'efi', received_at: nowIso(), event_type: 'custom-parse-miss',
       body: { subscription_id: subscriptionId, raw: String(custom) },
       headers: baseHeaders, ip: '',
     } as any);
@@ -298,7 +415,7 @@ async function ensureLocalSubscription(opts: {
     planId = planRow?.id ?? null;
   }
 
-  // 1) tenta inserir (status waiting não conflita com unique em status=active)
+  // tenta inserir NOVA linha (sem reaproveitar)
   const ins = await supabaseAdmin
     .from('subscriptions')
     .insert({
@@ -306,65 +423,43 @@ async function ensureLocalSubscription(opts: {
       plan_id: planId,
       efi_subscription_id: Number(subscriptionId),
       status: 'waiting',
+      actual_plan: 'no', // novo padrão: começa como "no"
       started_at: null,
-      updated_at: new Date().toISOString(),
+      updated_at: nowIso(),
     } as any)
-    .select('id, company_id, plan_id, status, started_at')
+    .select('id, company_id, plan_id, status, started_at, actual_plan')
     .maybeSingle();
 
   if (ins.data) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-sub',
+      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-sub',
       body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
       headers: baseHeaders, ip: '',
     } as any);
     return ins.data;
   }
 
-  // 2) se falhou (ex.: outra linha existente), reaproveita a mais recente da empresa
-  const { data: anySubOfCompany } = await supabaseAdmin
+  // se falhou (ex.: unique por efi_subscription_id), tenta pegar a já existente
+  const existing = await supabaseAdmin
     .from('subscriptions')
-    .select('id, company_id, plan_id, status, started_at')
-    .eq('company_id', companyId)
-    .order('created_at', { ascending: false })
-    .limit(1);
+    .select('id, company_id, plan_id, status, started_at, actual_plan')
+    .eq('efi_subscription_id', Number(subscriptionId))
+    .maybeSingle();
 
-  if (anySubOfCompany && anySubOfCompany.length) {
-    const chosen = anySubOfCompany[0];
-    const upd = await supabaseAdmin
-      .from('subscriptions')
-      .update({
-        plan_id: planId ?? chosen.plan_id,
-        efi_subscription_id: Number(subscriptionId),
-        status: 'waiting',
-        started_at: null,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', chosen.id)
-      .select('id, company_id, plan_id, status, started_at')
-      .maybeSingle();
-
-    if (upd.data) {
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'autoupdate-sub',
-        body: { subscription_id: subscriptionId, reused_id: chosen.id, company_id: companyId, plan_id: planId ?? chosen.plan_id },
-        headers: baseHeaders, ip: '',
-      } as any);
-      return upd.data;
-    }
-
+  if (existing.data) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autoupdate-error',
-      body: { subscription_id: subscriptionId, error: ins.error?.message },
+      provider: 'efi', received_at: nowIso(), event_type: 'autocreate-dup-use-existing',
+      body: { subscription_id: subscriptionId, company_id: companyId, plan_id: planId },
       headers: baseHeaders, ip: '',
     } as any);
-  } else {
-    await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'autocreate-error',
-      body: { subscription_id: subscriptionId, error: ins.error?.message },
-      headers: baseHeaders, ip: '',
-    } as any);
+    return existing.data;
   }
+
+  await supabaseAdmin.from('payment_webhook_log').insert({
+    provider: 'efi', received_at: nowIso(), event_type: 'autocreate-error',
+    body: { subscription_id: subscriptionId, error: ins.error?.message },
+    headers: baseHeaders, ip: '',
+  } as any);
 
   return null;
 }
@@ -403,7 +498,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const body: any = req.body || {};
   const base = {
-    ts: new Date().toISOString(),
+    ts: nowIso(),
     ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress,
     headers: { 'user-agent': req.headers['user-agent'], 'content-type': req.headers['content-type'] },
   };
@@ -419,7 +514,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       certB64: !!process.env.EFI_CERT_PEM_BASE64,
     };
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'env-check',
+      provider: 'efi', received_at: nowIso(), event_type: 'env-check',
       body: envHave, headers: base.headers, ip: String(base.ip || ''),
     } as any);
   } catch {}
@@ -427,7 +522,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 1) auditoria bruta
   try {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'incoming',
+      provider: 'efi', received_at: nowIso(), event_type: 'incoming',
       body, headers: base.headers, ip: String(base.ip || ''),
     } as any);
   } catch {}
@@ -444,19 +539,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const arr: any[] = (resp && (resp.data ?? resp)) || [];
         resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
         await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolved',
+          provider: 'efi', received_at: nowIso(), event_type: 'resolved',
           body: { token: tokenNotif, count: resolved.length, raw_len: Array.isArray(arr) ? arr.length : 0 },
           headers: base.headers, ip: String(base.ip || ''),
         } as any);
       } else {
         await supabaseAdmin.from('payment_webhook_log').insert({
-          provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolve-skip',
+          provider: 'efi', received_at: nowIso(), event_type: 'resolve-skip',
           body: { reason: 'missing-sdk-or-creds' }, headers: base.headers, ip: String(base.ip || ''),
         } as any);
       }
     } catch (e: any) {
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'resolve-error',
+        provider: 'efi', received_at: nowIso(), event_type: 'resolve-error',
         body: { message: e?.message || String(e) }, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
@@ -468,7 +563,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     if (fb.subscription_id || fb.charge_id || fb.status) {
       resolved.push(fb);
       await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'fallback-parse',
+        provider: 'efi', received_at: nowIso(), event_type: 'fallback-parse',
         body: fb, headers: base.headers, ip: String(base.ip || ''),
       } as any);
     }
@@ -484,7 +579,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   const customFromEvent = last.custom_id || null;
 
   await supabaseAdmin.from('payment_webhook_log').insert({
-    provider: 'efi', received_at: new Date().toISOString(), event_type: 'normalized',
+    provider: 'efi', received_at: nowIso(), event_type: 'normalized',
     body: { subscription_id: subscriptionId, charge_id: chargeId, status, custom_id: customFromEvent },
     headers: base.headers, ip: String(base.ip || ''),
   } as any);
@@ -494,7 +589,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 5) carrega subscription local — com RETRY
   let sub = await findSubscriptionWithRetry(String(subscriptionId), 10);
 
-  // 5.1 Auto-healing: se não achou, tenta criar/atualizar por company via custom_id
+  // 5.1 Auto-healing: se não achou, tenta criar por custom_id (sempre NOVA linha)
   if (!sub) {
     sub = await ensureLocalSubscription({
       subscriptionId: String(subscriptionId),
@@ -505,7 +600,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (!sub) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-miss',
+      provider: 'efi', received_at: nowIso(), event_type: 'db-miss',
       body: { reason: 'subscription-not-found-after-retry', efi_subscription_id: subscriptionId },
       headers: base.headers, ip: String(base.ip || ''),
     } as any);
@@ -517,7 +612,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let subIsActiveFromDetail = false;
   let lastChargeIdFromDetail: number | null = null;
 
-  if (chargeStatus === 'waiting' && subscriptionId) {
+  if (subscriptionId) {
     try {
       const api = await makeEfiApi();
       if (api) {
@@ -537,11 +632,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     (chargeStatus === 'paid' || chargeStatus === 'confirmed' || chargeStatus === 'active') ? 'paid' :
     (['unpaid', 'failed', 'charge_failed'].includes(chargeStatus)) ? 'failed' : 'waiting';
 
-  const shouldActivateSubscription =
-    chargeStatus === 'active' || chargeStatus === 'paid' || chargeStatus === 'confirmed' || subIsActiveFromDetail;
-
   const isFailed = txStatus === 'failed';
   const isCanceled = ['canceled', 'cancelled'].includes(chargeStatus);
+
+  const shouldMarkCurrent =
+    // regra pedida: marcar YES para o id do checkout (inclusive waiting),
+    // exceto se veio evento claro de falha/cancelamento
+    !isFailed && !isCanceled;
 
   try {
     // 6) Transação (registrar waiting/paid)
@@ -549,16 +646,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     // preferir o charge do evento; senão, o descoberto no detail
     let effectiveChargeId: number | null = chargeId ? Number(chargeId) : (lastChargeIdFromDetail ?? null);
-
-    // Se ainda não temos chargeId e o evento não era "waiting", tenta descobrir via detailSubscription
-    if (!effectiveChargeId) {
-      const api = await makeEfiApi();
-      if (api) {
-        const det = await detailSubscription(api, subscriptionId);
-        const lastCharge = Array.isArray(det?.charges) && det.charges.length ? det.charges[det.charges.length - 1] : null;
-        effectiveChargeId = Number(lastCharge?.charge_id ?? lastCharge?.id ?? null) || null;
-      }
-    }
 
     if (effectiveChargeId) {
       const api = await makeEfiApi();
@@ -576,11 +663,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       await supabaseAdmin.from('subscriptions')
-        .update({ last_charge_id: Number(effectiveChargeId), updated_at: new Date().toISOString() })
+        .update({ last_charge_id: Number(effectiveChargeId), updated_at: nowIso() })
         .eq('id', sub.id);
 
     } else {
-      // Sem charge_id conhecido: cria registro “sentinela”, mantendo o status coerente
+      // Sem charge_id conhecido: cria registro “sentinela”
       amountCents = await getPlanPriceCents(sub.plan_id);
       await upsertTransaction({
         company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
@@ -590,68 +677,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // 7) Atualiza status da assinatura e empresa
-    if (shouldActivateSubscription) {
+    // 7) Atualiza status da assinatura
+    if (subIsActiveFromDetail || txStatus === 'paid') {
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
-        started_at: sub.started_at ?? new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        started_at: sub.started_at ?? nowIso(),
+        updated_at: nowIso(),
       }).eq('id', sub.id);
-
-      if (sub.plan_id) {
-        const { data: planRow } = await supabaseAdmin
-          .from('plans')
-          .select('slug, max_employees')
-          .eq('id', sub.plan_id)
-          .maybeSingle();
-
-        if (sub.company_id && planRow) {
-          await supabaseAdmin.from('companies').update({
-            plan: planRow.slug, maxemployees: planRow.max_employees ?? null,
-          }).eq('id', sub.company_id);
-        }
-      }
-
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
-        body: { action: 'activate', subscription_id: subscriptionId, charge_id: effectiveChargeId, company_id: sub.company_id, plan_id: sub.plan_id },
-        headers: base.headers, ip: String(base.ip || ''),
-      } as any);
     } else if (isFailed) {
       await supabaseAdmin.from('subscriptions').update({
-        status: 'overdue', updated_at: new Date().toISOString(),
+        status: 'overdue', updated_at: nowIso(),
       }).eq('id', sub.id);
-
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
-        body: { action: 'overdue', subscription_id: subscriptionId, charge_id: effectiveChargeId },
-        headers: base.headers, ip: String(base.ip || ''),
-      } as any);
     } else if (isCanceled) {
       await supabaseAdmin.from('subscriptions').update({
-        status: 'canceled', canceled_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+        status: 'canceled', canceled_at: nowIso(), updated_at: nowIso(),
       }).eq('id', sub.id);
-
-      if (sub.company_id) {
-        await supabaseAdmin.from('companies').update({
-          plan: 'free', maxemployees: 3,
-        }).eq('id', sub.company_id);
-      }
-
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-update',
-        body: { action: 'canceled', subscription_id: subscriptionId },
-        headers: base.headers, ip: String(base.ip || ''),
-      } as any);
     } else {
-      await supabaseAdmin.from('payment_webhook_log').insert({
-        provider: 'efi', received_at: new Date().toISOString(), event_type: 'no-op',
-        body: { status: chargeStatus }, headers: base.headers, ip: String(base.ip || ''),
-      } as any);
+      // waiting/no-op
     }
+
+    // 8) *** NOVO: alternância do actual_plan ***
+    // regra: colocar YES para o ID desta assinatura (inclui waiting),
+    // e NO para a que estava YES antes; se não houver YES ainda, marca YES nesta.
+    if (shouldMarkCurrent) {
+      await switchActualPlanForCompany({
+        company_id: sub.company_id!,
+        new_subscription_id: sub.id,
+        new_plan_id: sub.plan_id ?? null,
+        headers: base.headers
+      });
+    } else if (isFailed || isCanceled) {
+      await unsetCurrentIfMatchesAndFallback({
+        company_id: sub.company_id!,
+        subscription_id: sub.id,
+        headers: base.headers
+      });
+    }
+
   } catch (e: any) {
     await supabaseAdmin.from('payment_webhook_log').insert({
-      provider: 'efi', received_at: new Date().toISOString(), event_type: 'db-error',
+      provider: 'efi', received_at: nowIso(), event_type: 'db-error',
       body: { message: e?.message || String(e) }, headers: base.headers, ip: String(base.ip || ''),
     } as any);
   }
