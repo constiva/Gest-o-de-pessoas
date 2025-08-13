@@ -97,24 +97,66 @@ function pickEventFields(obj: any): ParsedEvent {
     obj?.metadata?.custom_id ??
     obj?.subscription?.metadata?.custom_id ??
     obj?.data?.metadata?.custom_id ??
+    obj?.data?.custom_id ?? // <— extra fallback
     obj?.custom_id ?? null;
 
   const status = extractStatus(statusRaw);
   return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status, custom_id: customId ?? null };
 }
 
-// custom_id esperado: "company:<uuid>|plan:<slug>|<opcional>"
+// custom_id — versão robusta
+// Aceita:
+// 1) "company:<uuid>|plan:<slug>"
+// 2) "uuid|slug"
+// 3) "uuid-slug" (slug pode ter hífens; puxa “o resto”)
+// 4) JSON string: {"company":"<uuid>","plan":"<slug>"} (ou company_id / plan_slug)
 function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: string } {
   if (!raw) return {};
-  const parts = String(raw).split('|');
-  const out: { companyId?: string; planSlug?: string } = {};
-  for (const p of parts) {
-    const [k, v] = p.split(':', 2);
-    if (!k || !v) continue;
-    if (k === 'company') out.companyId = v;
-    if (k === 'plan') out.planSlug = v;
+  const s = String(raw).trim();
+
+  const isUuid = (x?: string) => !!x?.match(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/);
+
+  // 4) JSON
+  if (s.startsWith('{') && s.endsWith('}')) {
+    try {
+      const j = JSON.parse(s);
+      const company = j?.company ?? j?.company_id ?? j?.companyId;
+      const plan = j?.plan ?? j?.plan_slug ?? j?.planSlug;
+      const out: { companyId?: string; planSlug?: string } = {};
+      if (typeof company === 'string' && isUuid(company)) out.companyId = company;
+      if (typeof plan === 'string' && plan.trim()) out.planSlug = String(plan).trim();
+      if (out.companyId || out.planSlug) return out;
+    } catch {}
   }
-  return out;
+
+  // 1) "company:<uuid>|plan:<slug>"
+  if (s.includes('|') && s.includes(':')) {
+    const parts = s.split('|');
+    const out: { companyId?: string; planSlug?: string } = {};
+    for (const p of parts) {
+      const [k, v] = p.split(':', 2);
+      if (!k || !v) continue;
+      if (k === 'company' && isUuid(v)) out.companyId = v;
+      if (k === 'plan' && v.trim()) out.planSlug = v.trim();
+    }
+    if (out.companyId || out.planSlug) return out;
+  }
+
+  // 2) "uuid|slug"
+  if (s.includes('|')) {
+    const [maybeUuid, maybeSlug] = s.split('|');
+    if (isUuid(maybeUuid) && maybeSlug?.trim()) {
+      return { companyId: maybeUuid, planSlug: maybeSlug.trim() };
+    }
+  }
+
+  // 3) "uuid-slug"  (slug = tudo após o UUID + hífen)
+  const m = s.match(/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-(.+)$/);
+  if (m && isUuid(m[1]) && m[2]?.trim()) {
+    return { companyId: m[1], planSlug: m[2].trim() };
+  }
+
+  return {};
 }
 
 // ---------- Retry para evitar corrida ----------
@@ -224,11 +266,28 @@ async function ensureLocalSubscription(opts: {
 
   const detail = await detailSubscription(api, subscriptionId);
   const custom = (detail?.metadata?.custom_id ?? customFromEvent) || null;
-  if (!custom) return null;
+
+  if (!custom) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-missing',
+      body: { subscription_id: subscriptionId },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return null;
+  }
 
   const parsed = parseCustomId(custom);
   let companyId = parsed.companyId;
   let planId: string | null = null;
+
+  if (!companyId) {
+    await supabaseAdmin.from('payment_webhook_log').insert({
+      provider: 'efi', received_at: new Date().toISOString(), event_type: 'custom-parse-miss',
+      body: { subscription_id: subscriptionId, raw: String(custom) },
+      headers: baseHeaders, ip: '',
+    } as any);
+    return null;
+  }
 
   if (parsed.planSlug) {
     const { data: planRow } = await supabaseAdmin
@@ -238,7 +297,6 @@ async function ensureLocalSubscription(opts: {
       .maybeSingle();
     planId = planRow?.id ?? null;
   }
-  if (!companyId) return null;
 
   // 1) tenta inserir (status waiting não conflita com unique em status=active)
   const ins = await supabaseAdmin
@@ -454,7 +512,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  // ---------- NOVO: separar status de charge e estado real da subscription ----------
+  // ---------- separar status de charge e estado real da subscription ----------
   let chargeStatus = status; // status do evento/charge
   let subIsActiveFromDetail = false;
   let lastChargeIdFromDetail: number | null = null;
@@ -465,7 +523,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       if (api) {
         const det = await detailSubscription(api, subscriptionId);
         const detStatus = extractStatus(det?.status);
-        subIsActiveFromDetail = detStatus === 'active' || detStatus === 'confirmed';
+        subIsActiveFromDetail = detStatus === 'active' || detStatus === 'confirmed' || detStatus === 'paid';
         const detCharges = det?.charges;
         if (Array.isArray(detCharges) && detCharges.length) {
           const lc = detCharges[detCharges.length - 1];
@@ -476,7 +534,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   const txStatus: 'waiting' | 'paid' | 'failed' =
-    (chargeStatus === 'paid' || chargeStatus === 'confirmed') ? 'paid' :
+    (chargeStatus === 'paid' || chargeStatus === 'confirmed' || chargeStatus === 'active') ? 'paid' :
     (['unpaid', 'failed', 'charge_failed'].includes(chargeStatus)) ? 'failed' : 'waiting';
 
   const shouldActivateSubscription =
@@ -522,7 +580,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('id', sub.id);
 
     } else {
-      // Sem charge_id conhecido: cria registro “sentinela”, mantendo o status da CHARGE
+      // Sem charge_id conhecido: cria registro “sentinela”, mantendo o status coerente
       amountCents = await getPlanPriceCents(sub.plan_id);
       await upsertTransaction({
         company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
