@@ -403,7 +403,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     await probeOAuthBoth(sandbox, clientId, clientSecret);
 
     // instancia SDK
-    const { EfiPay: EfiPayCtor } = await getEfiSdk(); // já temos acima, mas mantive a sua estrutura
+    const { EfiPay: EfiPayCtor } = await getEfiSdk(); // mantido
     const options: any = {
       sandbox,
       client_id: clientId,
@@ -538,13 +538,36 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     let subsStatus: string = 'pending_payment';
     let charge_id_from_pay: number | undefined;
+
+    // *** NOVO: também capturar o status da charge do retorno do PAY
+    let charge_status_from_pay: string | undefined;
+
     try {
       const params = { id: Number(subscription_id) };
       const payResp = await api.defineSubscriptionPayMethod(params, payBody);
       console.log('[EFI][PAY][RAW]', util.inspect(payResp, { depth: 8 }));
-      charge_id_from_pay = payResp?.data?.charge_id ?? payResp?.charge_id;
+
+      // id da cobrança pode vir em dois formatos
+      charge_id_from_pay =
+        payResp?.data?.charge?.id ??
+        payResp?.charge?.id ??
+        payResp?.data?.charge_id ??
+        payResp?.charge_id;
+
+      // status da assinatura (mantido para logs)
       subsStatus = payResp?.data?.status ?? payResp?.status ?? 'waiting';
-      log('[PAY] OK:', { charge_id_from_pay, subsStatus });
+
+      // *** NOVO: status da cobrança (é ele que passa a mandar na persistência)
+      charge_status_from_pay =
+        (payResp?.data?.charge?.status ??
+         payResp?.charge?.status ??
+         undefined);
+
+      log('[PAY] OK:', {
+        charge_id_from_pay,
+        subsStatus,
+        charge_status_from_pay,
+      });
     } catch (e: any) {
       console.error('[EFI][RAW ERROR][PAY]', util.inspect(e, { depth: 10 }));
       const details = {
@@ -567,14 +590,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
 
     // ----------- GRAVA NO BANCO -----------
-    // 2.1 subscriptions (upsert por efi_subscription_id)
-    const startedAt = subsStatus === 'active' ? new Date().toISOString() : null;
+    // *** ALTERADO: decidir status da assinatura no DB pelo STATUS DA COBRANÇA
+    const chargeStatus = String(charge_status_from_pay || '').toLowerCase();
+    const chargePaidOrAuth = chargeStatus === 'paid' || chargeStatus === 'authorized';
+
+    const subsDbStatus = chargePaidOrAuth ? 'active' : 'pending_payment';
+    const startedAt = chargePaidOrAuth ? new Date().toISOString() : null;
+
     await supabase.from('subscriptions').upsert(
       {
         company_id,                     // requer coluna adicionada
         plan_id: plan_uuid,
         efi_subscription_id: String(subscription_id),
-        status: subsStatus === 'active' ? 'active' : 'pending_payment',
+        status: subsDbStatus,           // *** baseado na charge
         started_at: startedAt,
         updated_at: new Date().toISOString(),
         last_charge_id: charge_id_from_pay || first_charge_id || null,
@@ -582,18 +610,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       { onConflict: 'efi_subscription_id' }
     );
 
-    // 2.2 transactions (cobrança do mês ainda "waiting")
+    // 2.2 transactions — status conforme a charge também
     const chargeId = charge_id_from_pay || first_charge_id;
     if (chargeId) {
       await supabase.from('transactions').upsert(
         {
           efi_charge_id: chargeId,
-          subscription_id: null,         // se você tiver FK, pode preencher depois via job/join
-          status: 'waiting',
+          subscription_id: null,         // se tiver FK, pode amarrar depois
+          status: chargePaidOrAuth ? 'paid' : 'waiting', // *** baseado na charge
           method: 'credit_card',
           amount_cents: itemValue * itemAmount,
           currency: 'BRL',
-          response_json: {},             // pode guardar retorno bruto se quiser
+          response_json: {},             // opcional preencher com payResp.data
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         } as any
@@ -623,7 +651,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     }
     /* ==================================================================== */
 
-    return res.status(200).json({ subscription_id, charge_id: chargeId, status: subsStatus, stage: STAGES.DEFINE_PAY });
+    // *** para o caller, devolvo o melhor "status" que temos da cobrança; se vazio, cai para subsStatus
+    return res.status(200).json({
+      subscription_id,
+      charge_id: chargeId,
+      status: charge_status_from_pay || subsStatus,
+      stage: STAGES.DEFINE_PAY,
+    });
   } catch (e: any) {
     const payload: Fail = {
       error: e?.errorDescription || e?.error || e?.message || 'Erro ao processar assinatura',

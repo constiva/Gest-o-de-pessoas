@@ -30,6 +30,8 @@ const mask = (str?: string, keep = 3) => {
   if (s.length <= keep * 2) return s;
   return `${s.slice(0, keep)}…${s.slice(-keep)}`;
 };
+const nowIso = () => new Date().toISOString();
+
 // Permite [A-Za-z0-9 _-]; troca demais por "-"; colapsa; trim; corta em 64
 function sanitizeCustomId(input: string, maxLen = 64) {
   return input
@@ -122,7 +124,7 @@ async function cleanupOldEfiSubscriptions(opts: {
     try {
       await supabaseAdmin.from('payment_webhook_log').insert({
         provider: 'efi',
-        received_at: new Date().toISOString(),
+        received_at: nowIso(),
         event_type: 'cleanup-scan',
         body: { company_id, count: oldSubs?.length ?? 0, keepEfiId, error: error?.message },
         headers: {},
@@ -144,8 +146,8 @@ async function cleanupOldEfiSubscriptions(opts: {
         .from('subscriptions')
         .update({
           status: 'canceled',
-          canceled_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          canceled_at: nowIso(),
+          updated_at: nowIso(),
         })
         .eq('id', row.id);
     }
@@ -153,7 +155,7 @@ async function cleanupOldEfiSubscriptions(opts: {
     // auditoria
     await supabaseAdmin.from('payment_webhook_log').insert({
       provider: 'efi',
-      received_at: new Date().toISOString(),
+      received_at: nowIso(),
       event_type: 'cleanup-cancel-old',
       body: {
         company_id,
@@ -169,6 +171,55 @@ async function cleanupOldEfiSubscriptions(opts: {
     } as any);
   }
 }
+
+/* ===== Novo: mapeamento de status da cobrança → tx/subscription ===== */
+function mapChargeStatus(status?: string): 'waiting' | 'paid' | 'failed' {
+  const s = norm(status);
+  const paid = new Set(['paid', 'confirmed', 'active', 'authorized', 'captured', 'settled', 'approved']);
+  const failed = new Set(['failed', 'charge_failed', 'refused', 'refused_payment', 'declined']);
+  const canceled = new Set(['canceled', 'cancelled']);
+  if (paid.has(s)) return 'paid';
+  if (failed.has(s) || canceled.has(s)) return 'failed';
+  // inclui 'unpaid' como waiting (permite retry)
+  return 'waiting';
+}
+
+async function markAsCurrentIfPaid(opts: {
+  company_id: string;
+  subscription_id: string;
+  plan_id: string;
+}) {
+  const { company_id, subscription_id, plan_id } = opts;
+
+  // desligar outras
+  await supabaseAdmin
+    .from('subscriptions')
+    .update({ actual_plan: 'no', updated_at: nowIso() })
+    .eq('company_id', company_id)
+    .eq('actual_plan', 'yes')
+    .neq('id', subscription_id);
+
+  // ligar esta
+  await supabaseAdmin
+    .from('subscriptions')
+    .update({ actual_plan: 'yes', updated_at: nowIso() })
+    .eq('id', subscription_id);
+
+  // refletir em companies (pega slug/max_employees)
+  const { data: planRow } = await supabaseAdmin
+    .from('plans')
+    .select('slug, max_employees')
+    .eq('id', plan_id)
+    .maybeSingle();
+
+  if (planRow) {
+    await supabaseAdmin
+      .from('companies')
+      .update({ plan: planRow.slug, maxemployees: planRow.max_employees ?? null })
+      .eq('id', company_id);
+  }
+}
+// -------------------------------------------------------
 
 // ---------- Handler ----------
 const STAGES = {
@@ -219,7 +270,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     stage = STAGES.LOAD_PLAN;
     const { data: planRow, error: planErr } = await supabaseAdmin
       .from('plans')
-      .select('id, slug, name, efi_plan_id, price_cents, currency')
+      .select('id, slug, name, efi_plan_id, price_cents, currency, max_employees')
       .eq('id', plan_id)
       .single();
 
@@ -263,8 +314,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
           if (resCancel.ok) {
             await supabaseAdmin.from('subscriptions').update({
               status: 'canceled',
-              canceled_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
+              canceled_at: nowIso(),
+              updated_at: nowIso(),
             }).eq('id', row.id);
           }
 
@@ -272,7 +323,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
           await supabaseAdmin.from('payment_webhook_log').insert({
             provider: 'efi',
-            received_at: new Date().toISOString(),
+            received_at: nowIso(),
             event_type: 'pre-create-cancel',
             body: { company_id, efi_subscription_id: efiId, ok: resCancel.ok, status: resCancel.status, error: resCancel.error, data: resCancel.data },
             headers: {},
@@ -282,7 +333,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       } else {
         await supabaseAdmin.from('payment_webhook_log').insert({
           provider: 'efi',
-          received_at: new Date().toISOString(),
+          received_at: nowIso(),
           event_type: 'pre-create-cancel-scan',
           body: { company_id, count: 0 },
           headers: {},
@@ -299,7 +350,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       return res.status(400).json({ stage, error: 'Valor do plano inválido (price_cents).' });
     }
 
-    const customId = sanitizeCustomId(`company:${company_id}|plan:${planSlug}`);
+    const baseCustom = sanitizeCustomId(`company:${company_id}|plan:${planSlug}`);
+    const customId = metadata?.custom_id ? sanitizeCustomId(String(metadata.custom_id)) : baseCustom;
+
     const webhookUrlFromEnv = process.env.EFI_WEBHOOK_URL && isHttps(process.env.EFI_WEBHOOK_URL)
       ? String(process.env.EFI_WEBHOOK_URL)
       : undefined;
@@ -309,7 +362,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
       items: [{ name: item?.name || planName, value: valueCents, amount }],
       metadata: {
         custom_id: customId,
-        ...(metadata?.custom_id ? { custom_id: sanitizeCustomId(String(metadata.custom_id)) } : {}),
         ...(metadata?.notification_url && isHttps(metadata.notification_url)
           ? { notification_url: String(metadata.notification_url) }
           : webhookUrlFromEnv ? { notification_url: webhookUrlFromEnv } : {}),
@@ -324,6 +376,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 
     // 5) Insere localmente ANTES de definir o pagamento
     stage = STAGES.INSERT_LOCAL;
+    let localSubId: string | null = null;
     const insertLocal = await supabaseAdmin
       .from('subscriptions')
       .insert({
@@ -331,24 +384,27 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
         plan_id,
         status: 'waiting',
         efi_subscription_id: newSubscriptionId,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
+        created_at: nowIso(),
+        updated_at: nowIso(),
       } as any)
       .select('id')
       .single();
 
-    if (insertLocal.error) {
+    if (insertLocal.data?.id) {
+      localSubId = insertLocal.data.id as string;
+    } else if (insertLocal.error) {
       const { data: maybeRow } = await supabaseAdmin
         .from('subscriptions')
         .select('id')
         .eq('efi_subscription_id', newSubscriptionId)
         .maybeSingle();
+      if (maybeRow?.id) localSubId = String(maybeRow.id);
 
       if (!maybeRow) {
         try {
           await supabaseAdmin.from('payment_webhook_log').insert({
             provider: 'efi',
-            received_at: new Date().toISOString(),
+            received_at: nowIso(),
             event_type: 'insert-local-sub-error',
             body: { message: insertLocal.error.message, company_id, plan_id, newSubscriptionId },
             headers: {}, ip: '',
@@ -384,6 +440,71 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
     const payResp = await (api as any).defineSubscriptionPayMethod({ id: Number(newSubscriptionId) }, payBody);
     const newChargeId: number | null = payResp?.data?.charge_id ?? payResp?.charge_id ?? null;
     const newStatus: string | undefined = payResp?.data?.status ?? payResp?.status ?? undefined;
+
+    // ===== NOVO: refletir status baseado no pagamento =====
+    const txStatus = mapChargeStatus(newStatus); // 'waiting' | 'paid' | 'failed'
+
+    // 6.1) Atualiza a assinatura local (status/started_at/last_charge_id)
+    await supabaseAdmin
+      .from('subscriptions')
+      .update({
+        status:
+          txStatus === 'paid' ? 'active' :
+          txStatus === 'failed' ? 'overdue' : 'pending_payment',
+        started_at: txStatus === 'paid' ? nowIso() : null,
+        last_charge_id: newChargeId ?? null,
+        updated_at: nowIso(),
+      })
+      .eq('efi_subscription_id', newSubscriptionId);
+
+    // 6.2) Upsert da transação do mês (crédito)
+    const amountCents = valueCents * amount;
+    if (localSubId) {
+      if (newChargeId) {
+        await supabaseAdmin.from('transactions').upsert(
+          {
+            company_id,
+            subscription_id: localSubId,
+            plan_id,
+            efi_subscription_id: newSubscriptionId,
+            efi_charge_id: newChargeId,
+            status: txStatus, // 'waiting' | 'paid' | 'failed'
+            method: 'credit_card',
+            amount_cents: amountCents,
+            currency: planCurrency,
+            response_json: {},
+            updated_at: nowIso(),
+          } as any,
+          { onConflict: 'efi_charge_id' }
+        );
+      } else {
+        // Sem charge_id — cria “sentinela”
+        await supabaseAdmin.from('transactions').insert({
+          company_id,
+          subscription_id: localSubId,
+          plan_id,
+          efi_subscription_id: newSubscriptionId,
+          efi_charge_id: null,
+          status: txStatus === 'failed' ? 'failed' : txStatus === 'paid' ? 'paid' : 'waiting',
+          method: 'credit_card',
+          amount_cents: amountCents,
+          currency: planCurrency,
+          response_json: {},
+          created_at: nowIso(),
+          updated_at: nowIso(),
+        } as any);
+      }
+    }
+
+    // 6.3) Se já veio PAGO/AUTORIZADO, marca como plano atual da empresa
+    if (txStatus === 'paid' && localSubId) {
+      await markAsCurrentIfPaid({
+        company_id,
+        subscription_id: localSubId,
+        plan_id,
+      });
+    }
+    // ===============================================
 
     // 7) Cleanup final — cancela o que sobrou ≠ canceled e ≠ a recém-criada
     try {

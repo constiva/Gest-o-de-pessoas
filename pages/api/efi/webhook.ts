@@ -105,15 +105,13 @@ function pickEventFields(obj: any): ParsedEvent {
   return { subscription_id: subId ? String(subId) : null, charge_id: chargeId ? String(chargeId) : null, status, custom_id: customId ?? null };
 }
 
-// custom_id parser robusto:
-// Aceita 1) "company:<uuid>|plan:<slug>"  2) "uuid|slug"  3) "uuid-slug"  4) JSON {"company":"<uuid>","plan":"<slug>"}
+// custom_id parser robusto (mantido)
 function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: string } {
   if (!raw) return {};
   const s = String(raw).trim();
 
   const isUuid = (x?: string) => !!x?.match(/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/);
 
-  // 4) JSON
   if (s.startsWith('{') && s.endsWith('}')) {
     try {
       const j = JSON.parse(s);
@@ -126,7 +124,6 @@ function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: st
     } catch {}
   }
 
-  // 1) "company:<uuid>|plan:<slug>"
   if (s.includes('|') && s.includes(':')) {
     const parts = s.split('|');
     const out: { companyId?: string; planSlug?: string } = {};
@@ -139,7 +136,6 @@ function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: st
     if (out.companyId || out.planSlug) return out;
   }
 
-  // 2) "uuid|slug"
   if (s.includes('|')) {
     const [maybeUuid, maybeSlug] = s.split('|');
     if (isUuid(maybeUuid) && maybeSlug?.trim()) {
@@ -147,7 +143,6 @@ function parseCustomId(raw?: string | null): { companyId?: string; planSlug?: st
     }
   }
 
-  // 3) "uuid-slug"
   const m = s.match(/^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})-(.+)$/);
   if (m && isUuid(m[1]) && m[2]?.trim()) {
     return { companyId: m[1], planSlug: m[2].trim() };
@@ -223,7 +218,6 @@ async function switchActualPlanForCompany(opts: {
 }) {
   const { company_id, new_subscription_id, new_plan_id, headers } = opts;
 
-  // 1) Desliga o que estiver como yes
   await supabaseAdmin
     .from('subscriptions')
     .update({ actual_plan: 'no', updated_at: nowIso() })
@@ -231,7 +225,6 @@ async function switchActualPlanForCompany(opts: {
     .eq('actual_plan', 'yes')
     .neq('id', new_subscription_id);
 
-  // 2) Liga o novo como yes
   await supabaseAdmin
     .from('subscriptions')
     .update({ actual_plan: 'yes', updated_at: nowIso() })
@@ -245,7 +238,6 @@ async function switchActualPlanForCompany(opts: {
     headers, ip: ''
   } as any);
 
-  // 3) Reflete na companies
   if (new_plan_id) {
     const { data: planRow } = await supabaseAdmin
       .from('plans')
@@ -267,7 +259,6 @@ async function switchActualPlanForCompany(opts: {
       } as any);
     }
   } else {
-    // Se não tiver plan_id ainda, apenas deixa o flag pronto.
     await supabaseAdmin.from('payment_webhook_log').insert({
       provider: 'efi',
       received_at: nowIso(),
@@ -292,13 +283,11 @@ async function unsetCurrentIfMatchesAndFallback(opts: {
     .maybeSingle();
 
   if (subRow?.actual_plan === 'yes') {
-    // Desliga a atual
     await supabaseAdmin
       .from('subscriptions')
       .update({ actual_plan: 'no', updated_at: nowIso() })
       .eq('id', subscription_id);
 
-    // Tenta achar substituta ativa mais recente
     const { data: replacement } = await supabaseAdmin
       .from('subscriptions')
       .select('id, plan_id')
@@ -316,7 +305,6 @@ async function unsetCurrentIfMatchesAndFallback(opts: {
         headers
       });
     } else {
-      // Sem substituta -> coloca empresa em free (espelho)
       await supabaseAdmin.from('companies').update({
         plan: 'free', maxemployees: 3
       }).eq('id', company_id);
@@ -332,7 +320,7 @@ async function unsetCurrentIfMatchesAndFallback(opts: {
   }
 }
 
-// ---------- Upsert de transaction (waiting/paid) ----------
+// ---------- Upsert de transaction ----------
 async function upsertTransaction({
   company_id, subscription_id, plan_id, efi_subscription_id, efi_charge_id, status, amount_cents, currency = 'BRL',
 }: {
@@ -366,7 +354,7 @@ async function upsertTransaction({
   }
 }
 
-// ---------- Auto-create SEM reaproveitar linha (INSERT puro + trata 23505) ----------
+// ---------- Auto-create (mantido) ----------
 async function ensureLocalSubscription(opts: {
   subscriptionId: string;
   customFromEvent?: string | null;
@@ -384,7 +372,6 @@ async function ensureLocalSubscription(opts: {
     return null;
   }
 
-  // tenta pegar o custom_id do detail; se falhar, usa o do evento
   let custom: string | null = null;
   try {
     const detail = await detailSubscription(api, subscriptionId);
@@ -421,10 +408,9 @@ async function ensureLocalSubscription(opts: {
       .select('id')
       .eq('slug', parsed.planSlug)
       .maybeSingle();
-    planId = planRow?.id ?? null; // pode ser null; seu schema permite
+    planId = planRow?.id ?? null;
   }
 
-  // payload da nova assinatura local
   const row = {
     company_id: companyId,
     plan_id: planId,
@@ -435,7 +421,6 @@ async function ensureLocalSubscription(opts: {
     updated_at: nowIso(),
   };
 
-  // 1) tenta INSERT puro
   const ins = await supabaseAdmin
     .from('subscriptions')
     .insert(row)
@@ -451,7 +436,6 @@ async function ensureLocalSubscription(opts: {
     return ins.data as { id: string; company_id: string | null; plan_id: string | null; status: string | null; started_at: string | null };
   }
 
-  // 2) se deu erro, trata duplicate (23505) e seleciona
   if (ins.error) {
     if (ins.error.code === '23505') {
       const sel = await supabaseAdmin
@@ -477,7 +461,6 @@ async function ensureLocalSubscription(opts: {
     return null;
   }
 
-  // 3) fallback raro
   await supabaseAdmin.from('payment_webhook_log').insert({
     provider: 'efi', received_at: nowIso(), event_type: 'autocreate-null',
     body: { subscription_id: subscriptionId, note: 'insert retornou sem data nem erro' },
@@ -612,7 +595,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 5) carrega subscription local — com RETRY
   let sub = await findSubscriptionWithRetry(String(subscriptionId), 10);
 
-  // 5.1 Auto-healing: se não achou, tenta criar por custom_id (sempre NOVA linha)
+  // 5.1 Auto-healing
   if (!sub) {
     sub = await ensureLocalSubscription({
       subscriptionId: String(subscriptionId),
@@ -651,23 +634,33 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     } catch {}
   }
 
-  const txStatus: 'waiting' | 'paid' | 'failed' =
-    (chargeStatus === 'paid' || chargeStatus === 'confirmed' || chargeStatus === 'active') ? 'paid' :
-    (['unpaid', 'failed', 'charge_failed'].includes(chargeStatus)) ? 'failed' : 'waiting';
+  // ======== NOVO: mapeamento de status baseado na CHARGE ========
+  const paidSet = new Set(['paid', 'confirmed', 'active', 'authorized', 'captured', 'settled', 'approved']);
+  const waitingSet = new Set([
+    'waiting', 'pending', 'pending_payment', 'processing', 'new', 'created', 'waiting_payment',
+    'unpaid' // importante: unpaid permite retry → tratamos como waiting
+  ]);
+  const failedSet = new Set(['failed', 'charge_failed', 'refused', 'refused_payment', 'declined']);
+  const canceledSet = new Set(['canceled', 'cancelled']);
+
+  const chargeStatusLc = String(chargeStatus || '').toLowerCase();
+  let txStatus: 'waiting' | 'paid' | 'failed';
+  if (paidSet.has(chargeStatusLc)) txStatus = 'paid';
+  else if (failedSet.has(chargeStatusLc)) txStatus = 'failed';
+  else if (canceledSet.has(chargeStatusLc)) txStatus = 'failed'; // “falha terminal”, trataremos como canceled abaixo
+  else txStatus = 'waiting';
 
   const isFailed = txStatus === 'failed';
-  const isCanceled = ['canceled', 'cancelled'].includes(chargeStatus);
+  const isCanceled = canceledSet.has(chargeStatusLc);
 
-  const shouldMarkCurrent =
-    // regra: marcar YES para o id do checkout (inclusive waiting),
-    // exceto se veio evento claro de falha/cancelamento
-    !isFailed && !isCanceled;
+  // Só marca actual_plan=YES quando PAGO (ou quando o detalhe da assinatura já indica ativa)
+  const shouldMarkCurrent = (txStatus === 'paid') || subIsActiveFromDetail;
+  // ===============================================================
 
   try {
-    // 6) Transação (registrar waiting/paid)
+    // 6) Transação (registrar waiting/paid/failed)
     let amountCents = 0;
 
-    // preferir o charge do evento; senão, o descoberto no detail
     let effectiveChargeId: number | null = chargeId ? Number(chargeId) : (lastChargeIdFromDetail ?? null);
 
     if (effectiveChargeId) {
@@ -690,36 +683,38 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .eq('id', sub.id);
 
     } else {
-      // Sem charge_id conhecido: cria registro “sentinela”
       amountCents = await getPlanPriceCents(sub.plan_id);
       await upsertTransaction({
         company_id: sub.company_id!, subscription_id: sub.id, plan_id: sub.plan_id ?? null,
         efi_subscription_id: subscriptionId, efi_charge_id: null,
-        status: txStatus === 'paid' ? 'paid' : 'waiting',
+        status: txStatus === 'paid' ? 'paid' : (txStatus === 'failed' ? 'failed' : 'waiting'),
         amount_cents: amountCents,
       });
     }
 
-    // 7) Atualiza status da assinatura
-    if (subIsActiveFromDetail || txStatus === 'paid') {
+    // 7) Atualiza status da assinatura conforme PAYMENT STATUS
+    if (txStatus === 'paid' || subIsActiveFromDetail) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
         started_at: sub.started_at ?? nowIso(),
         updated_at: nowIso(),
       }).eq('id', sub.id);
-    } else if (isFailed) {
-      await supabaseAdmin.from('subscriptions').update({
-        status: 'overdue', updated_at: nowIso(),
-      }).eq('id', sub.id);
     } else if (isCanceled) {
       await supabaseAdmin.from('subscriptions').update({
         status: 'canceled', canceled_at: nowIso(), updated_at: nowIso(),
       }).eq('id', sub.id);
+    } else if (isFailed) {
+      await supabaseAdmin.from('subscriptions').update({
+        status: 'overdue', updated_at: nowIso(),
+      }).eq('id', sub.id);
     } else {
-      // waiting/no-op
+      // waiting (inclui unpaid) → pending_payment
+      await supabaseAdmin.from('subscriptions').update({
+        status: 'pending_payment', updated_at: nowIso(),
+      }).eq('id', sub.id);
     }
 
-    // 8) alternância do actual_plan
+    // 8) alternância do actual_plan (só quando pago/ativo)
     if (shouldMarkCurrent) {
       await switchActualPlanForCompany({
         company_id: sub.company_id!,
@@ -728,11 +723,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         headers: base.headers
       });
     } else if (isFailed || isCanceled) {
+      // falha terminal/cancelamento → remove se for o atual e tenta fallback
       await unsetCurrentIfMatchesAndFallback({
         company_id: sub.company_id!,
         subscription_id: sub.id,
         headers: base.headers
       });
+    } else {
+      // waiting/pending_payment: não marca YES e não remove o atual
     }
 
   } catch (e: any) {
