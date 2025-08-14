@@ -536,17 +536,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 2) resolve via token de notificação (quando vier)
   const tokenNotif: string | null = body?.notification || body?.token || body?.notification_token || null;
   let resolved: ParsedEvent[] = [];
+  let rawEvents: any[] = [];
 
   if (tokenNotif) {
     try {
       const api = await makeEfiApi();
       if (api) {
         const resp = await api.getNotification({ token: tokenNotif });
-        const arr: any[] = (resp && (resp.data ?? resp)) || [];
-        resolved = arr.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
+        rawEvents = (resp && (resp.data ?? resp)) || [];
+        resolved = rawEvents.map(pickEventFields).filter(x => x.subscription_id || x.charge_id || x.status);
         await supabaseAdmin.from('payment_webhook_log').insert({
           provider: 'efi', received_at: nowIso(), event_type: 'resolved',
-          body: { token: tokenNotif, count: resolved.length, raw_len: Array.isArray(arr) ? arr.length : 0 },
+          body: { token: tokenNotif, count: resolved.length, raw_len: Array.isArray(rawEvents) ? rawEvents.length : 0 },
           headers: base.headers, ip: String(base.ip || ''),
         } as any);
       } else {
@@ -577,16 +578,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   if (!resolved.length) return res.status(200).json({ ok: true, skipped: 'no-ids-or-status' });
 
-  // 4) aplica o último evento
-  const last = resolved[resolved.length - 1];
-  const subscriptionId = last.subscription_id!;
-  const chargeId = last.charge_id;
-  const status = last.status;
-  const customFromEvent = last.custom_id || null;
+  // 4) escolha do evento a aplicar:
+  //    - prioriza o ÚLTIMO com charge_id (subscription_charge)
+  //    - senão usa o último da lista
+  const lastWithCharge = [...resolved].reverse().find(e => !!e.charge_id) || null;
+  const lastAny = resolved[resolved.length - 1];
+  const chosen = lastWithCharge ?? lastAny;
+
+  let subscriptionId = chosen.subscription_id!;
+  let chargeId = chosen.charge_id;
+  let chargeStatus = chosen.status;
+  const customFromEvent = chosen.custom_id || null;
 
   await supabaseAdmin.from('payment_webhook_log').insert({
     provider: 'efi', received_at: nowIso(), event_type: 'normalized',
-    body: { subscription_id: subscriptionId, charge_id: chargeId, status, custom_id: customFromEvent },
+    body: { subscription_id: subscriptionId, charge_id: chargeId, status: chargeStatus, custom_id: customFromEvent, picked: lastWithCharge ? 'charge' : 'any' },
     headers: base.headers, ip: String(base.ip || ''),
   } as any);
 
@@ -613,32 +619,44 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(200).json({ ok: true, stored: 'event-only' });
   }
 
-  // ---------- separar status de charge e estado real da subscription ----------
-  let chargeStatus = status; // status do evento/charge
-  let subIsActiveFromDetail = false;
+  // ---------- buscar detalhes para complementar CHARGE (via history) ----------
   let lastChargeIdFromDetail: number | null = null;
+  let statusFromHistory: string | null = null;
 
-  if (subscriptionId) {
-    try {
-      const api = await makeEfiApi();
-      if (api) {
-        const det = await detailSubscription(api, subscriptionId);
-        const detStatus = extractStatus(det?.status);
-        subIsActiveFromDetail = detStatus === 'active' || detStatus === 'confirmed' || detStatus === 'paid';
-        const detCharges = det?.charges;
-        if (Array.isArray(detCharges) && detCharges.length) {
-          const lc = detCharges[detCharges.length - 1];
-          lastChargeIdFromDetail = Number(lc?.charge_id ?? lc?.id ?? null) || null;
-        }
+  try {
+    const api = await makeEfiApi();
+    if (api) {
+      const det = await detailSubscription(api, subscriptionId);
+
+      // status da assinatura (não usamos mais para promover plano)
+      // mantemos a coleta por compatibilidade/depuração
+      const detHistory = Array.isArray(det?.history) ? det.history : [];
+
+      if (detHistory.length) {
+        const h = detHistory[detHistory.length - 1];
+        const hId = Number(h?.charge_id ?? h?.id ?? null) || null;
+        const hStatus = extractStatus(h?.status ?? h?.situation ?? h?.event ?? null) || null;
+
+        if (hId) lastChargeIdFromDetail = hId;
+        if (hStatus) statusFromHistory = hStatus;
       }
-    } catch {}
-  }
 
-  // ======== NOVO: mapeamento de status baseado na CHARGE ========
+      // se o evento não trouxe charge_id, preenche a partir do history
+      if (!chargeId && lastChargeIdFromDetail) {
+        chargeId = String(lastChargeIdFromDetail);
+      }
+      // se o evento não trouxe status de charge útil, usa o do history
+      if (!chargeStatus && statusFromHistory) {
+        chargeStatus = statusFromHistory;
+      }
+    }
+  } catch {}
+
+  // ======== Mapeamento de status baseado na CHARGE ========
   const paidSet = new Set(['paid', 'confirmed', 'active', 'authorized', 'captured', 'settled', 'approved']);
   const waitingSet = new Set([
     'waiting', 'pending', 'pending_payment', 'processing', 'new', 'created', 'waiting_payment',
-    'unpaid' // importante: unpaid permite retry → tratamos como waiting
+    'unpaid'
   ]);
   const failedSet = new Set(['failed', 'charge_failed', 'refused', 'refused_payment', 'declined']);
   const canceledSet = new Set(['canceled', 'cancelled']);
@@ -647,15 +665,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   let txStatus: 'waiting' | 'paid' | 'failed';
   if (paidSet.has(chargeStatusLc)) txStatus = 'paid';
   else if (failedSet.has(chargeStatusLc)) txStatus = 'failed';
-  else if (canceledSet.has(chargeStatusLc)) txStatus = 'failed'; // “falha terminal”, trataremos como canceled abaixo
+  else if (canceledSet.has(chargeStatusLc)) txStatus = 'failed';
   else txStatus = 'waiting';
 
   const isFailed = txStatus === 'failed';
   const isCanceled = canceledSet.has(chargeStatusLc);
 
-  // Só marca actual_plan=YES quando PAGO (ou quando o detalhe da assinatura já indica ativa)
-  const shouldMarkCurrent = (txStatus === 'paid') || subIsActiveFromDetail;
-  // ===============================================================
+  // Agora: só marcamos actual_plan=YES quando a CHARGE está paga
+  const shouldMarkCurrent = (txStatus === 'paid');
+  // ========================================================
 
   try {
     // 6) Transação (registrar waiting/paid/failed)
@@ -692,8 +710,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
-    // 7) Atualiza status da assinatura conforme PAYMENT STATUS
-    if (txStatus === 'paid' || subIsActiveFromDetail) {
+    // 7) Atualiza status da assinatura conforme PAYMENT STATUS (apenas)
+    if (txStatus === 'paid') {
       await supabaseAdmin.from('subscriptions').update({
         status: 'active',
         started_at: sub.started_at ?? nowIso(),
@@ -714,7 +732,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       }).eq('id', sub.id);
     }
 
-    // 8) alternância do actual_plan (só quando pago/ativo)
+    // 8) alternância do actual_plan (SOMENTE quando pago)
     if (shouldMarkCurrent) {
       await switchActualPlanForCompany({
         company_id: sub.company_id!,
@@ -723,7 +741,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         headers: base.headers
       });
     } else if (isFailed || isCanceled) {
-      // falha terminal/cancelamento → remove se for o atual e tenta fallback
       await unsetCurrentIfMatchesAndFallback({
         company_id: sub.company_id!,
         subscription_id: sub.id,
