@@ -513,7 +513,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   // 0) log de ambiente
   try {
     const envHave = {
-      sandbox: String(process.env.EFI_SANDBOX || '').length > 0,
+      sandboxValue: String(process.env.EFI_SANDBOX || '').toLowerCase(), // 'true' | 'false' | ''
       clientId: !!process.env.EFI_CLIENT_ID,
       clientSecret: !!process.env.EFI_CLIENT_SECRET,
       certPath: !!process.env.EFI_CERT_PATH,
