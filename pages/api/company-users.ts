@@ -11,12 +11,14 @@ export default async function handler(
 ) {
   if (req.method === 'POST') {
     const { email, password, phone, company_id } = req.body;
+
     if (!email || !password || !company_id)
       return res.status(400).json({ error: 'Missing fields' });
     const { data, error } = await supabaseAdmin.auth.admin.createUser({
       email,
       password,
       phone: phone || undefined,
+
       email_confirm: true,
     });
     if (error || !data.user) return res.status(400).json({ error: error?.message });
@@ -53,11 +55,11 @@ export default async function handler(
     const { user_id, password, phone } = req.body;
     const { error } = await supabaseAdmin.auth.admin.updateUserById(user_id, {
       password,
+
       phone: phone || undefined,
-    });
-    if (error) return res.status(400).json({ error: error.message });
-    return res.status(200).json({ ok: true });
-  }
+
+      phone,
+
 
   if (req.method === 'DELETE') {
     const { id, company_id } = req.query;

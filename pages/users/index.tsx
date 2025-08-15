@@ -17,6 +17,7 @@ export default function CompanyUsersPage() {
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string>('');
 
+
   const loadUsers = async (cid: string) => {
     const res = await fetch(`/api/company-users?company_id=${cid}`);
     if (res.ok) {
@@ -33,6 +34,7 @@ export default function CompanyUsersPage() {
         .from('companies_users')
         .select('company_id')
         .eq('user_id', session.user.id)
+
         .single();
       if (data) {
         setCompanyId(data.company_id);
@@ -107,6 +109,7 @@ export default function CompanyUsersPage() {
         </Button>
       </div>
       {error && <p className="text-red-500 mb-4">{error}</p>}
+
       <table className="w-full text-left border-collapse">
         <thead>
           <tr>
