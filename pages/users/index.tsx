@@ -16,6 +16,7 @@ export default function CompanyUsersPage() {
   const [password, setPassword] = useState('');
   const [phone, setPhone] = useState('');
   const [error, setError] = useState<string>('');
+  const [loadingCompany, setLoadingCompany] = useState(true);
 
   const loadUsers = async (cid: string) => {
     const res = await fetch(`/api/company-users?company_id=${cid}`);
@@ -27,8 +28,13 @@ export default function CompanyUsersPage() {
 
   useEffect(() => {
     const init = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session) {
+        setLoadingCompany(false);
+        return;
+      }
       const { data } = await supabase
         .from('companies_users')
         .select('company_id')
@@ -38,12 +44,17 @@ export default function CompanyUsersPage() {
         setCompanyId(data.company_id);
         loadUsers(data.company_id);
       }
+      setLoadingCompany(false);
     };
     init();
   }, []);
 
   const addUser = async () => {
     setError('');
+    if (!companyId) {
+      setError('Empresa não encontrada');
+      return;
+    }
     const res = await fetch('/api/company-users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -102,7 +113,10 @@ export default function CompanyUsersPage() {
           onChange={(e) => setPhone(e.target.value)}
           className="border p-2 rounded"
         />
-        <Button onClick={addUser} disabled={!companyId}>
+        <Button
+          onClick={addUser}
+          disabled={loadingCompany || !email || !password}
+        >
           Adicionar
         </Button>
       </div>
