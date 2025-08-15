@@ -1,0 +1,23 @@
+# TODO
+
+## Dashboard
+- [x] Filtrar contadores de funcionários por `company_id` do usuário logado.
+
+## Controle de conteúdo por plano e conta
+- [ ] Renomear `plans.feature_json` para `plan_description`.
+- [ ] Adicionar coluna `plans.features` (jsonb).
+- [ ] Garantir `companies.plan_id` e `plan_overrides` (jsonb).
+- [ ] Mesclar `plans.features` com `companies.plan_overrides` no frontend.
+- [ ] Criar tabela `companies_users` com campos de função, `scopes` e `allowed_fields`.
+- [ ] Validar `scopes`/`allowed_fields` contra plano e campos personalizados.
+
+## Interface
+- [ ] Nova seção "Usuários & Permissões" para owners/admins.
+- [ ] CRUD de subcontas com seleção de módulos e permissões.
+- [ ] Rota `/admin` para superadmins com gestão de planos, empresas e subcontas.
+
+## Segurança
+- [ ] Políticas RLS garantindo isolamento por `company_id`.
+- [ ] Superadmin (`users.is_admin = true`) bypass das restrições de tenant.
+- [ ] Testes para validação de RLS e limites de `scopes`/`allowed_fields`.
+
