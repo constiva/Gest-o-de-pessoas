@@ -24,8 +24,7 @@
 - [ ] Backend validation: `scopes` and `allowed_fields` must not exceed capabilities permitted by `plans.features` + `companies.plan_overrides`.
 - [ ] Enforce allowed_fields against base field list plus company's custom fields.
 
-## 3. Client sidebar section "Users & Permissions"
-- [ ] Visible only to `owner`/`admin` roles of the tenant.
+
 - [ ] Display list of subaccounts from `companies_users` with search and filter.
 - [ ] Forms to create, edit, and remove subaccounts.
 - [ ] UI for selecting modules (scopes) and allowed fields.
