@@ -1,0 +1,55 @@
+# Implementation Tasks Checklist
+
+## 1. Dashboard per company
+- [x] Update API/queries to filter employee counts by `company_id` of the logged-in user.
+- [x] Ensure dashboard reflects counts of active, inactive and terminated employees scoped to the user's `company_id`.
+- [ ] Add tests verifying cross-company access is prevented.
+
+## 2. Content visibility control
+### A) By plan
+- [ ] Rename `plans.feature_json` column to `plan_description` (text).
+- [ ] Add `features` JSONB column with default `{}` containing module toggles and technical permissions.
+- [ ] Ensure `companies` table has `plan_id` referencing `plans.id`.
+- [ ] Add `plan_overrides` JSONB column to `companies` with default `{}` for per-company overrides.
+- [ ] Update frontend to merge `plans.features` with `companies.plan_overrides` when determining visible modules and actions.
+
+### B) By account (within company)
+- [ ] Create `companies_users` table with columns:
+  - `company_id` UUID → refs `companies.id`
+  - `user_id` UUID → refs `auth.users.id`
+  - `role` TEXT → enum: owner, admin, manager, viewer, custom
+  - `scopes` JSONB default `{}` for module/operation permissions
+  - `allowed_fields` JSONB default `[]` for allowed data fields (including custom fields)
+  - `created_at` TIMESTAMPTZ default `now()`
+- [ ] Backend validation: `scopes` and `allowed_fields` must not exceed capabilities permitted by `plans.features` + `companies.plan_overrides`.
+- [ ] Enforce allowed_fields against base field list plus company's custom fields.
+
+## 3. Client sidebar section "Users & Permissions"
+- [ ] Visible only to `owner`/`admin` roles of the tenant.
+- [ ] Display list of subaccounts from `companies_users` with search and filter.
+- [ ] Forms to create, edit, and remove subaccounts.
+- [ ] UI for selecting modules (scopes) and allowed fields.
+- [ ] Toggle per-module read-only vs edit access.
+
+## 4. General Admin page (superadmin)
+- [ ] Create `/admin` route accessible only when `users.is_admin = true`.
+- [ ] Provide sidebar navigation: Planos / Empresas / Subcontas.
+- [ ] Plans module: CRUD for `plans`, edit `plan_description` and `features` JSON.
+- [ ] Companies module: list `companies`, change `plan_id`, edit `plan_overrides`.
+- [ ] Subaccounts module: view `companies_users` records per company (audit).
+- [ ] Lists support search/filter; forms are clear and user-friendly.
+
+## 5. Security and RLS
+- [ ] Implement RLS for `employees`, `companies_users`, etc. so users only access data for their `company_id`.
+- [ ] Owners/admins of a company can create/edit/remove `companies_users`; managers/viewers have read according to `scopes`.
+- [ ] Superadmin (`users.is_admin = true`) bypasses tenant restrictions and can access `/admin`.
+- [ ] Backend enforces `scopes`/`allowed_fields` validation against plan features and overrides.
+- [ ] Validate `allowed_fields` against base list and existing custom fields for the company.
+
+## 6. Acceptance Criteria
+- [ ] Dashboard filters by `company_id`.
+- [ ] Tenants cannot access another tenant's data.
+- [ ] UI obeys combined `plans.features` and `companies.plan_overrides`; `companies_users.scopes/allowed_fields` further restricts within tenant.
+- [ ] `/admin` enables superadmin to manage plans, companies and subaccounts.
+- [ ] RLS and backend validation tested, including cross-tenant access attempts.
+
