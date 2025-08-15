@@ -15,6 +15,7 @@ const ACTIONS = [
   { key: 'delete', label: 'Excluir' },
 ];
 
+
 export default function UsersPermissions() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -28,6 +29,9 @@ export default function UsersPermissions() {
   );
   const [fieldSelections, setFieldSelections] = useState<string[]>([]);
   const [customFields, setCustomFields] = useState<string[]>([]);
+
+  const [newUserId, setNewUserId] = useState('');
+  const [newRole, setNewRole] = useState('viewer');
 
   useEffect(() => {
     const init = async () => {
@@ -65,6 +69,7 @@ export default function UsersPermissions() {
         .select('field')
         .eq('company_id', cid);
       setCustomFields(defs ? defs.map((d: any) => d.field) : []);
+
       setLoading(false);
     };
     init();
@@ -75,6 +80,19 @@ export default function UsersPermissions() {
       .from('companies_users')
       .select('user_id, role')
       .eq('company_id', cid);
+
+  const addUser = async () => {
+    if (!companyId) return;
+    await supabase.from('companies_users').insert({
+      company_id: companyId,
+      user_id: newUserId,
+      role: newRole,
+    });
+    setNewUserId('');
+    const { data: companyUsers } = await supabase
+      .from('companies_users')
+      .select('user_id, role')
+      .eq('company_id', companyId);
     if (companyUsers) {
       const enriched = await Promise.all(
         companyUsers.map(async (u: any) => {
@@ -122,6 +140,7 @@ export default function UsersPermissions() {
     await reloadUsers(companyId);
   };
 
+
   if (loading) return <p>Carregando...</p>;
 
   return (
@@ -146,6 +165,12 @@ export default function UsersPermissions() {
           onChange={(e) => setNewRole(e.target.value)}
           className="border p-2 mr-2"
         >
+          value={newUserId}
+          onChange={(e) => setNewUserId(e.target.value)}
+          placeholder="User ID"
+          className="border p-2 mr-2"
+        />
+        <select value={newRole} onChange={(e) => setNewRole(e.target.value)} className="border p-2 mr-2">
           <option value="owner">owner</option>
           <option value="admin">admin</option>
           <option value="manager">manager</option>
@@ -210,6 +235,7 @@ export default function UsersPermissions() {
             </div>
           </div>
         )}
+        <Button onClick={addUser}>Adicionar</Button>
       </div>
       <table className="w-full text-left border">
         <thead>
