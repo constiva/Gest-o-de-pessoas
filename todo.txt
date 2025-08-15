@@ -8,12 +8,13 @@
 - [ ] Adicionar coluna `plans.features` (jsonb).
 - [ ] Garantir `companies.plan_id` e `plan_overrides` (jsonb).
 - [ ] Mesclar `plans.features` com `companies.plan_overrides` no frontend.
-- [ ] Criar tabela `companies_users` com campos de função, `scopes` e `allowed_fields`.
-- [ ] Validar `scopes`/`allowed_fields` contra plano e campos personalizados.
+ - [x] Criar tabela `companies_users` com campos de função, `scopes` e `allowed_fields`.
+ - [ ] Validar `scopes`/`allowed_fields` contra plano e campos personalizados.
 
 ## Interface
-- [ ] Nova seção "Usuários & Permissões" para owners/admins.
-- [ ] CRUD de subcontas com seleção de módulos e permissões.
+ - [x] Nova seção "Usuários & Permissões" para owners/admins.
+ - [x] Criar subcontas com seleção de ações e campos.
+ - [ ] Editar/remover subcontas existentes.
 - [ ] Rota `/admin` para superadmins com gestão de planos, empresas e subcontas.
 
 ## Segurança
