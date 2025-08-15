@@ -79,3 +79,22 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+create table public.companies_users (
+  company_id uuid not null,
+  user_id uuid not null,
+  role public.company_user_role not null default 'viewer'::company_user_role,
+  scopes jsonb not null default '{}'::jsonb,
+  allowed_fields jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone not null default now(),
+  constraint companies_users_pkey primary key (company_id, user_id),
+  constraint companies_users_company_id_fkey foreign key (company_id) references companies (id) on delete cascade,
+  constraint companies_users_user_id_fkey foreign key (user_id) references auth.users (id) on delete cascade,
+  constraint companies_users_allowed_fields_is_array check ((jsonb_typeof(allowed_fields) = 'array'::text)),
+  constraint companies_users_scopes_is_object check ((jsonb_typeof(scopes) = 'object'::text))
+);
+
+create index if not exists companies_users_company_id_idx on public.companies_users using btree (company_id);
+create index if not exists companies_users_user_id_idx on public.companies_users using btree (user_id);
+
+create trigger companies_users_validate_scopes before insert or update on companies_users for each row execute function trg_companies_users_validate_scopes ();
