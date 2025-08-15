@@ -33,7 +33,10 @@ export default function Dashboard() {
         router.replace(`/pending?companyId=${userProfile?.company_id}`);
         return;
       }
-      const { data: employees } = await supabase.from('employees').select('status');
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('status')
+        .eq('company_id', userProfile?.company_id);
       const active = employees?.filter((e) => e.status === 'active').length || 0;
       const inactive = employees?.filter((e) => e.status === 'inactive').length || 0;
       const dismissed = employees?.filter((e) => e.status === 'dismissed').length || 0;

@@ -1,9 +1,17 @@
+create table public.plans (
+  id uuid primary key default uuid_generate_v4(),
+  name text not null,
+  plan_description text,
+  features jsonb default '{}'::jsonb
+);
+
 create table public.companies (
   id uuid primary key default uuid_generate_v4(),
   name text not null,
   email text,
   phone text,
-  plan text,
+  plan_id uuid references public.plans(id),
+  plan_overrides jsonb default '{}'::jsonb,
   maxemployees integer
 );
 
@@ -12,7 +20,8 @@ create table public.users (
   name text,
   phone text,
   email text,
-  company_id uuid references public.companies(id)
+  company_id uuid references public.companies(id),
+  is_admin boolean default false
 );
 
 create table public.employees (
@@ -79,3 +88,51 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+create table public.companies_users (
+  company_id uuid references public.companies(id) on delete cascade,
+  user_id uuid references auth.users(id) on delete cascade,
+  role text check (role in ('owner','admin','manager','viewer','custom')),
+  scopes jsonb default '{}'::jsonb,
+  allowed_fields jsonb default '[]'::jsonb,
+  created_at timestamptz default now(),
+  primary key (company_id, user_id)
+);
+
+-- Enable Row Level Security
+alter table public.employees enable row level security;
+create policy employees_by_company on public.employees
+  using (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  )
+  with check (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  );
+
+alter table public.companies_users enable row level security;
+create policy companies_users_select on public.companies_users for select
+  using (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  );
+create policy companies_users_write on public.companies_users for insert
+  with check (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  );
+create policy companies_users_update on public.companies_users for update
+  using (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  )
+  with check (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  );
+create policy companies_users_delete on public.companies_users for delete
+  using (
+    company_id = (select company_id from public.users where id = auth.uid())
+    or (select is_admin from public.users where id = auth.uid())
+  );
