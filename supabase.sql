@@ -4,6 +4,7 @@ create table public.companies (
   email text,
   phone text,
   plan text,
+  plan_id uuid references public.plans(id),
   maxemployees integer
 );
 
@@ -12,7 +13,8 @@ create table public.users (
   name text,
   phone text,
   email text,
-  company_id uuid references public.companies(id)
+  company_id uuid references public.companies(id),
+  is_admin boolean default false
 );
 
 create table public.employees (
@@ -79,3 +81,39 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+create table public.companies_users (
+  company_id uuid not null,
+  user_id uuid not null,
+  name text not null,
+  email text not null,
+  phone text,
+  position text,
+  role public.company_user_role not null default 'viewer'::company_user_role,
+  scopes jsonb not null default '{}'::jsonb,
+  allowed_fields jsonb not null default '[]'::jsonb,
+  created_at timestamp with time zone not null default now(),
+  constraint companies_users_pkey primary key (company_id, user_id),
+  constraint companies_users_company_id_fkey foreign key (company_id) references companies (id) on delete cascade,
+  constraint companies_users_user_id_fkey foreign key (user_id) references auth.users (id) on delete cascade,
+  constraint companies_users_allowed_fields_is_array check ((jsonb_typeof(allowed_fields) = 'array'::text)),
+  constraint companies_users_scopes_is_object check ((jsonb_typeof(scopes) = 'object'::text))
+);
+
+create index if not exists companies_users_company_id_idx on public.companies_users using btree (company_id);
+create index if not exists companies_users_user_id_idx on public.companies_users using btree (user_id);
+
+create trigger companies_users_validate_scopes before insert or update on companies_users for each row execute function trg_companies_users_validate_scopes ();
+
+-- Snippet para atualizar bancos existentes
+-- alter table if exists public.users add column if not exists is_admin boolean default false;
+-- alter table if exists public.companies add column if not exists plan_id uuid;
+-- alter table public.companies add constraint companies_plan_id_fkey foreign key (plan_id) references public.plans(id);
+-- atualiza plan_id de empresas existentes com base no campo plan
+-- update public.companies c set plan_id = p.id from public.plans p where c.plan = p.name;
+-- limpa plan_id quando o plano informado não existe
+-- update public.companies set plan_id = null where plan is not null and plan not in (select name from public.plans);
+-- alter table if exists public.companies_users add column if not exists name text;
+-- alter table if exists public.companies_users add column if not exists email text;
+-- alter table if exists public.companies_users add column if not exists phone text;
+-- alter table if exists public.companies_users add column if not exists position text;
