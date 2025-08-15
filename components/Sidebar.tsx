@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutDashboard, Users, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Users, User as UserIcon, UserCog, Settings } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -8,7 +8,7 @@ import { supabase } from '../lib/supabaseClient';
 export default function Sidebar() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
-  const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
+  const [profile, setProfile] = useState<{ name: string; email: string; is_admin?: boolean } | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -16,7 +16,7 @@ export default function Sidebar() {
       if (user) {
         const { data: profileData } = await supabase
           .from('users')
-          .select('name,email')
+          .select('name,email,is_admin')
           .eq('id', user.id)
           .single();
         if (profileData) setProfile(profileData);
@@ -27,7 +27,11 @@ export default function Sidebar() {
   const links = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/employees', label: 'Funcionários', icon: Users },
+    { href: '/users', label: 'Usuários & Permissões', icon: UserCog },
   ];
+  if (profile?.is_admin) {
+    links.push({ href: '/admin/plans', label: 'Planos', icon: Settings });
+  }
 
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 min-h-screen p-6 flex flex-col">
