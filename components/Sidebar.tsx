@@ -36,7 +36,7 @@ export default function Sidebar() {
     { href: '/employees', label: 'Funcionários', icon: Users },
   ];
 
-  if (profile?.role && ['owner', 'admin'].includes(profile.role)) {
+  if (profile && !profile.is_admin) {
     links.push({ href: '/users-permissions', label: 'Usuários & Permissões', icon: UserIcon });
   }
 
