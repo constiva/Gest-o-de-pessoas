@@ -8,6 +8,7 @@ import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
 import { getFieldLabel, FIELD_GROUPS } from '../../lib/utils';
+import { hasScope } from '../../lib/access';
 import {
   Users,
   UserPlus,
@@ -44,6 +45,8 @@ export default function Employees() {
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [allColumns, setAllColumns] = useState<string[]>([]);
   const [columns, setColumns] = useState<string[]>([]);
+  const [allowedFields, setAllowedFields] = useState<string[]>([]);
+  const [scopes, setScopes] = useState<Record<string, any>>({});
   const [filters, setFilters] = useState<Filter[]>([]);
   const [views, setViews] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<any | null>(null);
@@ -98,17 +101,31 @@ export default function Employees() {
   };
 
   const load = async () => {
-    const { data: { session } } = await supabase.auth.getSession();
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
     if (!session) return;
-    const { data: user } = await supabase
-      .from('users')
-      .select('company_id')
-      .eq('id', session.user.id)
-      .single();
+    const { data: cu } = await supabase
+      .from('companies_users')
+      .select('company_id, allowed_fields, scopes')
+      .eq('user_id', session.user.id)
+      .maybeSingle();
+    let companyId = cu?.company_id;
+    if (!companyId) {
+      const { data: user } = await supabase
+        .from('users')
+        .select('company_id')
+        .eq('id', session.user.id)
+        .single();
+      companyId = user.company_id;
+    }
+    const allowed = cu?.allowed_fields || [];
+    setAllowedFields(allowed);
+    setScopes(cu?.scopes || {});
     const { data: defs } = await supabase
       .from('custom_fields')
       .select('field,value')
-      .eq('company_id', user.company_id);
+      .eq('company_id', companyId);
     const defMap: Record<string, string[]> = {};
     defs?.forEach((d: any) => {
       defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
@@ -117,14 +134,21 @@ export default function Employees() {
     const { data = [] } = await supabase
       .from('employees')
       .select('*')
-      .eq('company_id', user.company_id);
+      .eq('company_id', companyId);
     const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
     setEmployees(expanded);
     refreshCounts(expanded);
     const cols = expanded.length
-      ? Object.keys(expanded[0]).filter((k) => k !== 'company_id' && k !== 'custom_fields')
+      ? Object.keys(expanded[0]).filter(
+          (k) =>
+            k !== 'company_id' &&
+            k !== 'custom_fields' &&
+            (!allowed.length || allowed.includes(k))
+        )
       : [];
-    const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
+    const all = Array.from(new Set([...cols, ...Object.keys(defMap)])).filter(
+      (c) => !allowed.length || allowed.includes(c)
+    );
     setAllColumns(all);
     const { data: viewRows } = await supabase
       .from('employee_views')
@@ -149,7 +173,14 @@ export default function Employees() {
       setViews(viewRows);
     }
     setCurrentView(view);
-    setColumns(view?.columns && view.columns.length ? view.columns : defaultViewCols);
+    const defaultCols = defaultViewCols.filter(
+      (c) => !allowed.length || allowed.includes(c)
+    );
+    const selected =
+      view?.columns && view.columns.length
+        ? view.columns.filter((c: string) => all.includes(c))
+        : defaultCols;
+    setColumns(selected);
     setFilters(view?.filters || []);
     setField(all[0] || '');
   };
@@ -160,7 +191,11 @@ export default function Employees() {
 
   const switchView = (v: any) => {
     setCurrentView(v);
-    setColumns(v.columns || []);
+    setColumns(
+      (v.columns || []).filter(
+        (c: string) => !allowedFields.length || allowedFields.includes(c)
+      )
+    );
     setFilters(v.filters || []);
     setField(allColumns[0] || '');
   };
@@ -433,11 +468,13 @@ export default function Employees() {
       <div className="flex justify-between items-center mb-4">
         <h1 className="text-2xl font-bold">Funcionários</h1>
         <div className="flex gap-2">
-          <Button asChild>
-            <Link href="/employees/new" className="flex items-center gap-1">
-              <UserPlus className="h-4 w-4" /> Adicionar Funcionário
-            </Link>
-          </Button>
+          {hasScope(scopes, 'employees', 'create') && (
+            <Button asChild data-action="employees.create">
+              <Link href="/employees/new" className="flex items-center gap-1">
+                <UserPlus className="h-4 w-4" /> Adicionar Funcionário
+              </Link>
+            </Button>
+          )}
           <Button
             variant="outline"
             onClick={() => setConfigOpen(true)}
@@ -764,94 +801,118 @@ export default function Employees() {
           className="fixed bg-white border p-2 z-50 space-y-1 actions-menu"
           style={{ top: menuPos.y, left: menuPos.x }}
         >
-          <div>
-            <button
-              className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-              onClick={() => {
-                setOpenActions(null);
-                setViewId(activeEmp.id);
-              }}
-            >
-              <Eye className="h-4 w-4" /> Visualizar
-            </button>
-          </div>
-          <div>
-            <button
-              className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-              onClick={() => {
-                setOpenActions(null);
-                router.push(`/employees/${activeEmp.id}`);
-              }}
-            >
-              <Pencil className="h-4 w-4" /> Editar
-            </button>
-          </div>
+          {hasScope(scopes, 'employees', 'read') && (
+            <div>
+              <button
+                data-action="employees.read"
+                className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                onClick={() => {
+                  setOpenActions(null);
+                  setViewId(activeEmp.id);
+                }}
+              >
+                <Eye className="h-4 w-4" /> Visualizar
+              </button>
+            </div>
+          )}
+          {hasScope(scopes, 'employees', 'update') && (
+            <div>
+              <button
+                data-action="employees.update"
+                className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                onClick={() => {
+                  setOpenActions(null);
+                  router.push(`/employees/${activeEmp.id}`);
+                }}
+              >
+                <Pencil className="h-4 w-4" /> Editar
+              </button>
+            </div>
+          )}
           {activeEmp.status === 'active' ? (
             <>
-              <div>
-                <button
-                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-                  onClick={() => updateStatus(activeEmp.id, 'inactive')}
-                >
-                  <UserMinus className="h-4 w-4" /> Inativar
-                </button>
-              </div>
-              <div>
-                <button
-                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-                  onClick={() => {
-                    setOpenActions(null);
-                    setDismissDate(new Date().toISOString().slice(0, 10));
-                    setDismissReason('');
-                    setDismissId(activeEmp.id);
-                  }}
-                >
-                  <UserX className="h-4 w-4" /> Desligar
-                </button>
-              </div>
+              {hasScope(scopes, 'employees', 'deactivate') && (
+                <div>
+                  <button
+                    data-action="employees.deactivate"
+                    className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                    onClick={() => updateStatus(activeEmp.id, 'inactive')}
+                  >
+                    <UserMinus className="h-4 w-4" /> Inativar
+                  </button>
+                </div>
+              )}
+              {hasScope(scopes, 'employees', 'dismiss') && (
+                <div>
+                  <button
+                    data-action="employees.dismiss"
+                    className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                    onClick={() => {
+                      setOpenActions(null);
+                      setDismissDate(new Date().toISOString().slice(0, 10));
+                      setDismissReason('');
+                      setDismissId(activeEmp.id);
+                    }}
+                  >
+                    <UserX className="h-4 w-4" /> Desligar
+                  </button>
+                </div>
+              )}
             </>
           ) : activeEmp.status === 'inactive' ? (
             <>
+              {hasScope(scopes, 'employees', 'activate') && (
+                <div>
+                  <button
+                    data-action="employees.activate"
+                    className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                    onClick={() => updateStatus(activeEmp.id, 'active')}
+                  >
+                    <UserCheck className="h-4 w-4" /> Ativar
+                  </button>
+                </div>
+              )}
+              {hasScope(scopes, 'employees', 'dismiss') && (
+                <div>
+                  <button
+                    data-action="employees.dismiss"
+                    className="text-left text-sm text-brand hover:underline flex items-center gap-1"
+                    onClick={() => {
+                      setOpenActions(null);
+                      setDismissDate(new Date().toISOString().slice(0, 10));
+                      setDismissReason('');
+                      setDismissId(activeEmp.id);
+                    }}
+                  >
+                    <UserX className="h-4 w-4" /> Desligar
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            hasScope(scopes, 'employees', 'activate') && (
               <div>
                 <button
+                  data-action="employees.activate"
                   className="text-left text-sm text-brand hover:underline flex items-center gap-1"
                   onClick={() => updateStatus(activeEmp.id, 'active')}
                 >
                   <UserCheck className="h-4 w-4" /> Ativar
                 </button>
               </div>
-              <div>
-                <button
-                  className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-                  onClick={() => {
-                    setOpenActions(null);
-                    setDismissDate(new Date().toISOString().slice(0, 10));
-                    setDismissReason('');
-                    setDismissId(activeEmp.id);
-                  }}
-                >
-                  <UserX className="h-4 w-4" /> Desligar
-                </button>
-              </div>
-            </>
-          ) : (
+            )
+          )}
+          {hasScope(scopes, 'employees', 'delete') && (
             <div>
               <button
-                className="text-left text-sm text-brand hover:underline flex items-center gap-1"
-                onClick={() => updateStatus(activeEmp.id, 'active')}
+                data-action="employees.delete"
+                className="text-left text-sm text-red-600 hover:underline flex items-center gap-1"
+                onClick={() => setDeleteId(activeEmp.id)}
               >
-                <UserCheck className="h-4 w-4" /> Ativar
+                <Trash className="h-4 w-4" /> Excluir
               </button>
             </div>
           )}
-          <div>
-            <button
-              className="text-left text-sm text-red-600 hover:underline flex items-center gap-1"
-              onClick={() => setDeleteId(activeEmp.id)}
-            >
-              <Trash className="h-4 w-4" /> Excluir
-            </button>
-          </div>
         </div>
       )}
       <EmployeeConfigModal
