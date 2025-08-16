@@ -6,10 +6,12 @@ import Layout from '../components/Layout';
 import { Button } from '../components/ui/button';
 import EmployeeStats from '../components/EmployeeStats';
 import { LogOut, Users, PlusCircle } from 'lucide-react';
+import { hasScope, SCOPE_DEFINITIONS } from '../lib/access';
 
 export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ active: 0, inactive: 0, dismissed: 0 });
+  const [scopes, setScopes] = useState<Record<string, any>>({});
   const router = useRouter();
 
   useEffect(() => {
@@ -19,21 +21,42 @@ export default function Dashboard() {
         router.replace('/login');
         return;
       }
-      const { data: userProfile } = await supabase
-        .from('users')
-        .select('company_id')
-        .eq('id', session.session.user.id)
-        .single();
+      const { data: cu } = await supabase
+        .from('companies_users')
+        .select('company_id, scopes')
+        .eq('user_id', session.session.user.id)
+        .maybeSingle();
+      let companyId = cu?.company_id;
+      if (cu?.scopes) {
+        setScopes(cu.scopes);
+      } else {
+        const allScopes: Record<string, Record<string, boolean>> = {};
+        Object.entries(SCOPE_DEFINITIONS).forEach(([mod, actions]) => {
+          allScopes[mod] = {};
+          Object.keys(actions).forEach((act) => (allScopes[mod][act] = true));
+        });
+        setScopes(allScopes);
+      }
+      if (!companyId) {
+        const { data: userProfile } = await supabase
+          .from('users')
+          .select('company_id')
+          .eq('id', session.session.user.id)
+          .single();
+        companyId = userProfile?.company_id;
+      }
       const { data: company } = await supabase
         .from('companies')
         .select('maxemployees')
-        .eq('id', userProfile?.company_id)
+        .eq('id', companyId)
         .single();
       if (company?.maxemployees === 0) {
-        router.replace(`/pending?companyId=${userProfile?.company_id}`);
+        router.replace(`/pending?companyId=${companyId}`);
         return;
       }
-      const { data: employees } = await supabase.from('employees').select('status');
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('status');
       const active = employees?.filter((e) => e.status === 'active').length || 0;
       const inactive = employees?.filter((e) => e.status === 'inactive').length || 0;
       const dismissed = employees?.filter((e) => e.status === 'dismissed').length || 0;
@@ -60,16 +83,20 @@ export default function Dashboard() {
       </div>
       <EmployeeStats active={stats.active} inactive={stats.inactive} dismissed={stats.dismissed} />
       <div className="mt-8 flex gap-4">
-        <Button asChild>
-          <Link href="/employees" className="flex items-center gap-2">
-            <Users className="h-4 w-4" /> Funcionários
-          </Link>
-        </Button>
-        <Button variant="outline" asChild>
-          <Link href="/employees/new" className="flex items-center gap-2">
-            <PlusCircle className="h-4 w-4" /> Adicionar Funcionário
-          </Link>
-        </Button>
+        {hasScope(scopes, 'employees', 'read') && (
+          <Button asChild data-action="employees.read">
+            <Link href="/employees" className="flex items-center gap-2">
+              <Users className="h-4 w-4" /> Funcionários
+            </Link>
+          </Button>
+        )}
+        {hasScope(scopes, 'employees', 'create') && (
+          <Button variant="outline" asChild data-action="employees.create">
+            <Link href="/employees/new" className="flex items-center gap-2">
+              <PlusCircle className="h-4 w-4" /> Adicionar Funcionário
+            </Link>
+          </Button>
+        )}
       </div>
     </Layout>
   );
