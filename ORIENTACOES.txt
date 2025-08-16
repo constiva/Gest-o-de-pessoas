@@ -1,0 +1,4 @@
+- Contas principais (registradas em public.users) possuem todos os módulos, ações e campos liberados.
+- Usuários vinculados via companies_users precisam ter scopes e allowed_fields definidos.
+- Ao adicionar novos módulos ou campos de funcionário, atualize SCOPE_DEFINITIONS e EMPLOYEE_FIELD_OPTIONS.
+- Funções app_has_scope e app_allowed_fields fazem fallback para public.users quando não existe registro em companies_users.
