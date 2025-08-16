@@ -1,125 +1,114 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
-import { createClient } from '@supabase/supabase-js';
+import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
 const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
-const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-
 const MODULES = ['employees', 'metrics', 'reports'] as const;
 
-export default async function handler(
-  req: NextApiRequest,
-  res: NextApiResponse
-) {
-  if (req.method !== 'GET') return res.status(405).end();
-
-  const token = req.headers.authorization?.replace('Bearer ', '');
-  if (!token) return res.status(401).json({ error: 'missing token' });
-
-  const { data: user, error: userErr } = await supabaseAdmin.auth.getUser(token);
-  if (userErr || !user?.user)
-    return res.status(401).json({ error: userErr?.message || 'invalid token' });
-  const userId = user.user.id;
-
-  const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: { headers: { Authorization: `Bearer ${token}` } },
-  });
-
-  const debug: any = { errors: {}, trace: [] as any[] };
-  let companyId: string | null = null;
-
-  const { data: cu, error: cuErr } = await supabase
-    .from('companies_users')
-    .select('company_id,scopes,allowed_fields')
-    .eq('user_id', userId);
-  debug.trace.push({ step: 'companies_users', data: cu, error: cuErr?.message });
-  if (cuErr) debug.errors.companies_users = cuErr.message;
-  if (cu && cu.length) {
-    companyId = cu[0].company_id;
-    debug.user_scopes = cu[0].scopes;
-    debug.allowed_fields = cu[0].allowed_fields;
+function processEffectiveFeatures(plan: any, company: any) {
+  const effective: Record<string, boolean> = {};
+  if (Array.isArray(plan?.features_json)) {
+    for (const f of plan.features_json) {
+      if (MODULES.includes(f as any)) effective[f] = true;
+    }
   }
+  if (company?.plan_overrides) Object.assign(effective, company.plan_overrides);
+  return effective;
+}
 
-  if (!companyId) {
-    const { data: u, error: uErr } = await supabase
-      .from('users')
-      .select('company_id')
-      .eq('id', userId)
-      .single();
-    debug.trace.push({ step: 'users', data: u, error: uErr?.message });
-    if (uErr) debug.errors.users = uErr.message;
-    companyId = u?.company_id || null;
-  }
+async function getCompanyDebugSafe(supabase: SupabaseClient, companyId: string) {
+  const trace: any[] = [];
+  const errors: Record<string, string> = {};
 
-  if (!companyId) {
-    debug.companyId = 'N/A';
-    return res.status(200).json(debug);
-  }
-  debug.companyId = companyId;
-
-  const { data: company, error: compErr } = await supabase
+  const { data: company, error: companyErr } = await supabase
     .from('companies')
-    .select('plan,plan_id,plan_overrides')
+    .select('id,name,plan_id,plan_overrides')
     .eq('id', companyId)
     .single();
-  debug.trace.push({ step: 'company', data: company, error: compErr?.message });
-  if (compErr) debug.errors.company = compErr.message;
+  trace.push({ step: 'company', data: company, error: companyErr?.message });
+  if (companyErr) errors.company = companyErr.message;
 
-  let plan: any = null;
+  const { data: admin, error: adminErr } = await supabase
+    .from('users')
+    .select('id,email,name')
+    .eq('company_id', companyId)
+    .maybeSingle();
+  trace.push({ step: 'users', data: admin, error: adminErr?.message });
+  if (adminErr) errors.users = adminErr.message;
+
+  const { data: employees, error: empErr } = await supabase
+    .from('companies_users')
+    .select('user_id,name,email,role,scopes,allowed_fields')
+    .eq('company_id', companyId);
+  trace.push({ step: 'companies_users', data: employees, error: empErr?.message });
+  if (empErr) errors.companies_users = empErr.message;
+
+  let plan = null;
   if (company?.plan_id) {
     const { data: p, error: pErr } = await supabase
       .from('plans')
       .select('id,name,features_json')
       .eq('id', company.plan_id)
-      .single();
-    debug.trace.push({ step: 'plan_by_id', data: p, error: pErr?.message });
-    if (pErr) debug.errors.plan = pErr.message;
-    plan = p;
-  } else if (company?.plan) {
-    const { data: p, error: pErr } = await supabase
-      .from('plans')
-      .select('id,name,features_json')
-      .eq('name', company.plan)
-      .single();
-    debug.trace.push({ step: 'plan_by_name', data: p, error: pErr?.message });
-    if (pErr) debug.errors.plan = pErr.message;
+      .maybeSingle();
+    trace.push({ step: 'plan_by_id', data: p, error: pErr?.message });
+    if (pErr) errors.plan = pErr.message;
     plan = p;
   }
 
-  debug.plan = plan?.name || company?.plan || null;
-  debug.plan_id = plan?.id || company?.plan_id || null;
-  debug.plan_features = plan?.features_json || null;
-  debug.plan_overrides = company?.plan_overrides || null;
+  return { company, admin, employees: employees || [], plan, trace, errors };
+}
 
-  let planFeaturesObj: Record<string, boolean> = {};
-  if (Array.isArray(plan?.features_json)) {
-    for (const f of plan.features_json) {
-      if (MODULES.includes(f as any)) planFeaturesObj[f] = true;
-    }
+export default async function handler(req: NextApiRequest, res: NextApiResponse) {
+  if (req.method !== 'GET') return res.status(405).end();
+
+  const token = req.headers.authorization?.replace('Bearer ', '');
+  if (!token) return res.status(401).json({ error: 'missing token' });
+
+  const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+  const { data: user, error: userErr } = await supabaseAdmin.auth.getUser(token);
+  if (userErr || !user?.user) return res.status(401).json({ error: userErr?.message || 'invalid token' });
+  const userId = user.user.id;
+
+  await supabaseAdmin.rpc('debug_set_user_context', { user_uuid: userId });
+
+  const { data: cu } = await supabaseAdmin
+    .from('companies_users')
+    .select('company_id')
+    .eq('user_id', userId);
+  let companyId: string | null = cu?.[0]?.company_id || null;
+  if (!companyId) {
+    const { data: u } = await supabaseAdmin
+      .from('users')
+      .select('company_id')
+      .eq('id', userId)
+      .maybeSingle();
+    companyId = u?.company_id || null;
   }
+  if (!companyId) return res.status(200).json({ companyId: null });
 
-  const { data: eff, error: effErr } = await supabase.rpc(
-    'app_effective_features',
-    { company: companyId }
-  );
-  debug.trace.push({ step: 'effective_features', data: eff, error: effErr?.message });
-  if (effErr) debug.errors.effective_features = effErr.message;
-  debug.effective_features = eff && Object.keys(eff).length ? eff : planFeaturesObj;
+  const safe = await getCompanyDebugSafe(supabaseAdmin, companyId);
+  if ((safe as any).error) return res.status(500).json(safe);
 
-  const modules: Record<string, boolean> = {};
-  const moduleErrors: Record<string, any> = {};
-  for (const m of MODULES) {
-    const { data, error: modErr } = await supabase.rpc(
-      'app_feature_enabled',
-      { company: companyId, module: m }
-    );
-    modules[m] = !!data;
-    debug.trace.push({ step: `module_${m}`, data, error: modErr?.message });
-    if (modErr) moduleErrors[m] = modErr.message;
-  }
-  if (Object.keys(moduleErrors).length) debug.errors.modules = moduleErrors;
-  debug.modules = modules;
+  const effectiveFeatures = processEffectiveFeatures(safe.plan, safe.company);
+  const modules = {
+    employees: effectiveFeatures.employees || false,
+    metrics: effectiveFeatures.metrics || false,
+    reports: effectiveFeatures.reports || false,
+  };
+  const userScopes = safe.employees[0]?.scopes || {};
+  const allowedFields = safe.employees[0]?.allowed_fields || [];
 
-  return res.status(200).json(debug);
+  return res.status(200).json({
+    company: {
+      id: safe.company?.id,
+      name: safe.company?.name,
+      plan: safe.plan?.name || 'N/A',
+    },
+    effective_features: effectiveFeatures,
+    modules,
+    user_scopes: userScopes,
+    allowed_fields: allowedFields,
+    trace: safe.trace,
+    errors: safe.errors,
+  });
 }
