@@ -28,6 +28,7 @@ create table public.employees (
   zip text,
   position text,
   department text,
+  unit text,
   salary numeric,
   hire_date date,
   termination_date date,

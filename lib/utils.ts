@@ -22,6 +22,7 @@ export const FIELD_LABELS: Record<string, string> = {
   zip: 'CEP',
   position: 'Cargo',
   department: 'Departamento',
+  unit: 'Filial',
   salary: 'Salário',
   hire_date: 'Data de admissão',
   termination_date: 'Data de desligamento',
@@ -47,7 +48,7 @@ export const FIELD_GROUPS = [
   { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
   {
     title: 'Informações profissionais',
-    fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+    fields: ['position', 'department', 'unit', 'salary', 'hire_date', 'status'],
   },
   {
     title: 'Contato de emergência',

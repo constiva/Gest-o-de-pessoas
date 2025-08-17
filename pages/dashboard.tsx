@@ -19,21 +19,44 @@ export default function Dashboard() {
         router.replace('/login');
         return;
       }
+      let companyId = '';
       const { data: userProfile } = await supabase
         .from('users')
         .select('company_id')
         .eq('id', session.session.user.id)
-        .single();
+        .maybeSingle();
+      if (userProfile) {
+        companyId = userProfile.company_id;
+      } else {
+        const { data: compUser } = await supabase
+          .from('companies_users')
+          .select('company_id')
+          .eq('user_id', session.session.user.id)
+          .maybeSingle();
+        if (compUser) {
+          companyId = compUser.company_id;
+        } else {
+          const { data: unitUser } = await supabase
+            .from('companies_units')
+            .select('company_id')
+            .eq('user_id', session.session.user.id)
+            .maybeSingle();
+          companyId = unitUser?.company_id || '';
+        }
+      }
       const { data: company } = await supabase
         .from('companies')
         .select('maxemployees')
-        .eq('id', userProfile?.company_id)
+        .eq('id', companyId)
         .single();
       if (company?.maxemployees === 0) {
-        router.replace(`/pending?companyId=${userProfile?.company_id}`);
+        router.replace(`/pending?companyId=${companyId}`);
         return;
       }
-      const { data: employees } = await supabase.from('employees').select('status');
+      const { data: employees } = await supabase
+        .from('employees')
+        .select('status')
+        .eq('company_id', companyId);
       const active = employees?.filter((e) => e.status === 'active').length || 0;
       const inactive = employees?.filter((e) => e.status === 'inactive').length || 0;
       const dismissed = employees?.filter((e) => e.status === 'dismissed').length || 0;
