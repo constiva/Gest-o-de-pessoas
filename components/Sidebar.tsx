@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutDashboard, Users, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Users, User as UserIcon, UserCog } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -27,6 +27,7 @@ export default function Sidebar() {
   const links = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/employees', label: 'Funcionários', icon: Users },
+    { href: '/users', label: 'Usuários & Permissões', icon: UserCog },
   ];
 
   return (

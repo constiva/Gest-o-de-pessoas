@@ -23,7 +23,7 @@ import {
   Trash,
 } from 'lucide-react';
 
-const defaultViewCols = ['name','email','phone','cpf','position','department'];
+const defaultViewCols = ['name','email','phone','cpf','position','department','unit'];
 
 interface Employee {
   id: string;
@@ -48,6 +48,8 @@ export default function Employees() {
   const [views, setViews] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<any | null>(null);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
+  const [units, setUnits] = useState<string[]>([]);
+  const [unitFilter, setUnitFilter] = useState('');
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
   const [textValue, setTextValue] = useState('');
@@ -114,6 +116,11 @@ export default function Employees() {
       defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
     });
     setCustomFieldDefs(defMap);
+    const { data: unitRows } = await supabase
+      .from('companies_units')
+      .select('name')
+      .eq('company_id', user.company_id);
+    setUnits(unitRows?.map((u: any) => u.name) || []);
     const { data = [] } = await supabase
       .from('employees')
       .select('*')
@@ -324,8 +331,10 @@ export default function Employees() {
     setDeleteId(null);
   };
 
-  const filtered = employees.filter((emp) =>
-    filters.every((f) => {
+  const filtered = employees.filter(
+    (emp) =>
+      (!unitFilter || emp.unit === unitFilter) &&
+      filters.every((f) => {
       const fieldValue = f.custom
         ? emp.custom_fields?.[f.field]
         : emp[f.field];
@@ -470,6 +479,20 @@ export default function Employees() {
               </option>
             ))}
           </select>
+          {units.length > 0 && (
+            <select
+              className="border rounded p-1"
+              value={unitFilter}
+              onChange={(e) => setUnitFilter(e.target.value)}
+            >
+              <option value="">Todas as filiais</option>
+              {units.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          )}
           <Button variant="outline" size="sm" onClick={addView}>
             Nova lista
           </Button>
