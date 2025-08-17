@@ -21,6 +21,7 @@ interface Employee {
   zip: string;
   position: string;
   department: string;
+  unit: string;
   salary: string;
   hire_date: string;
   status: string;
@@ -45,6 +46,7 @@ const defaultEmployee: Employee = {
   zip: '',
   position: '',
   department: '',
+  unit: '',
   salary: '',
   hire_date: '',
   status: 'active',
@@ -65,6 +67,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
   const [customFieldDefs, setCustomFieldDefs] = useState<Record<string, string[]>>({});
   const [departments, setDepartments] = useState<string[]>([]);
   const [positions, setPositions] = useState<string[]>([]);
+  const [units, setUnits] = useState<string[]>([]);
   const [fieldOpen, setFieldOpen] = useState(false);
   const [deptOpen, setDeptOpen] = useState(false);
   const [posOpen, setPosOpen] = useState(false);
@@ -178,6 +181,11 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
       .select('name')
       .eq('company_id', user.company_id);
     setPositions(poss?.map((p: any) => p.name) || []);
+    const { data: unitRows } = await supabase
+      .from('companies_units')
+      .select('name')
+      .eq('company_id', user.company_id);
+    setUnits(unitRows?.map((u: any) => u.name) || []);
   };
 
   useEffect(() => {
@@ -215,6 +223,7 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
     const payload = {
       ...form,
       salary: parseCurrency(form.salary) || null,
+      unit: form.unit || null,
       company_id: company.id,
     };
     if (isEdit && employee) {
@@ -403,6 +412,25 @@ export default function EmployeeForm({ employee }: { employee?: Employee }) {
               </Button>
             </div>
           </div>
+          {units.length > 0 && (
+            <div className="flex flex-col">
+              <label htmlFor="unit">Filial</label>
+              <select
+                id="unit"
+                name="unit"
+                value={form.unit}
+                onChange={handleChange}
+                className="border p-2 rounded"
+              >
+                <option value="">Selecione</option>
+                {units.map((u) => (
+                  <option key={u} value={u}>
+                    {u}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div className="flex flex-col">
             <label htmlFor="salary">Salário</label>
             <Input
