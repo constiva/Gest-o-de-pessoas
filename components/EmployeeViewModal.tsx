@@ -126,6 +126,26 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
         </div>
+        {(() => {
+          const baseRows = ['name', 'email', 'phone', 'cpf', 'birth_date']
+            .filter((f) => fields.includes(f) && (employee as any)[f])
+            .map((f) => [f, (employee as any)[f]] as [string, any]);
+          return baseRows.length ? (
+            <div className="mb-4">
+              <h3 className="font-semibold mb-2">Dados do funcionário</h3>
+              <table className="w-full border border-purple-100 text-sm">
+                <tbody>
+                  {baseRows.map(([k, v]) => (
+                    <tr key={k} className="odd:bg-white even:bg-purple-50/40">
+                      <td className="border p-2 font-medium">{getFieldLabel(k)}</td>
+                      <td className="border p-2">{String(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null;
+        })()}
         {FIELD_GROUPS.map((group) => {
           const groupRows = group.fields
             .filter((f) =>
