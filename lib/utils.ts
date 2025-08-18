@@ -16,12 +16,14 @@ export const FIELD_LABELS: Record<string, string> = {
   email: 'E-mail',
   phone: 'Telefone',
   cpf: 'CPF/CNPJ',
+  birth_date: 'Data de nascimento',
   street: 'Rua',
   city: 'Cidade',
   state: 'Estado',
   zip: 'CEP',
   position: 'Cargo',
   department: 'Departamento',
+  unit: 'Filial',
   salary: 'Salário',
   hire_date: 'Data de admissão',
   termination_date: 'Data de desligamento',
@@ -42,12 +44,12 @@ export function getFieldLabel(field: string) {
 export const FIELD_GROUPS = [
   {
     title: 'Informações pessoais',
-    fields: ['name', 'email', 'phone', 'cpf', 'gender'],
+    fields: ['name', 'email', 'phone', 'cpf', 'birth_date', 'gender'],
   },
   { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
   {
     title: 'Informações profissionais',
-    fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+    fields: ['position', 'department', 'unit', 'salary', 'hire_date', 'status'],
   },
   {
     title: 'Contato de emergência',
