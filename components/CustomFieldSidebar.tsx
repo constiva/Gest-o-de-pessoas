@@ -25,16 +25,36 @@ export default function CustomFieldSidebar({ open, onClose }: Props) {
     const load = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) return;
+      let compId = '';
       const { data: user } = await supabase
         .from('users')
         .select('company_id')
         .eq('id', session.user.id)
-        .single();
-      setCompanyId(user.company_id);
+        .maybeSingle();
+      if (user) {
+        compId = user.company_id;
+      } else {
+        const { data: compUser } = await supabase
+          .from('companies_users')
+          .select('company_id')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        if (compUser) {
+          compId = compUser.company_id;
+        } else {
+          const { data: unitUser } = await supabase
+            .from('companies_units')
+            .select('company_id')
+            .eq('user_id', session.user.id)
+            .maybeSingle();
+          compId = unitUser?.company_id || '';
+        }
+      }
+      setCompanyId(compId);
       const { data } = await supabase
         .from('custom_fields')
         .select('*')
-        .eq('company_id', user.company_id);
+        .eq('company_id', compId);
       setFields(data || []);
     };
     load();
