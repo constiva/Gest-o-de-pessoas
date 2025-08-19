@@ -7,7 +7,7 @@ import Layout from '../../components/Layout';
 import { Button } from '../../components/ui/button';
 import EmployeeViewModal from '../../components/EmployeeViewModal';
 import EmployeeConfigModal from '../../components/EmployeeConfigModal';
-import { getFieldLabel, FIELD_GROUPS } from '../../lib/utils';
+import { getFieldLabel, FIELD_GROUPS, getStatusLabel } from '../../lib/utils';
 import {
   Users,
   UserPlus,
@@ -23,7 +23,7 @@ import {
   Trash,
 } from 'lucide-react';
 
-const defaultViewCols = ['name','email','phone','cpf','position','department'];
+const defaultViewCols = ['name','email','phone','cpf','birth_date','position','department','unit'];
 
 interface Employee {
   id: string;
@@ -48,6 +48,8 @@ export default function Employees() {
   const [views, setViews] = useState<any[]>([]);
   const [currentView, setCurrentView] = useState<any | null>(null);
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
+  const [units, setUnits] = useState<string[]>([]);
+  const [unitFilter, setUnitFilter] = useState('');
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
   const [textValue, setTextValue] = useState('');
@@ -71,6 +73,8 @@ export default function Employees() {
   const [dismissReason, setDismissReason] = useState('');
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showFilter, setShowFilter] = useState(false);
+  const [allowViewConfig, setAllowViewConfig] = useState(false);
+  const [userId, setUserId] = useState('');
   const router = useRouter();
   const activeEmp = openActions
     ? employees.find((e) => e.id === openActions) || null
@@ -100,58 +104,130 @@ export default function Employees() {
   const load = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) return;
+    setUserId(session.user.id);
+    const lsKey = `employeeCols:${session.user.id}`;
+    let companyId = '';
+    let unitName = '';
+    let canConfigViews = false;
     const { data: user } = await supabase
       .from('users')
       .select('company_id')
       .eq('id', session.user.id)
-      .single();
+      .maybeSingle();
+    if (user) {
+      companyId = user.company_id;
+      canConfigViews = true;
+    } else {
+      const { data: compUser } = await supabase
+        .from('companies_users')
+        .select('company_id')
+        .eq('user_id', session.user.id)
+        .maybeSingle();
+      if (compUser) {
+        companyId = compUser.company_id;
+      } else {
+        const { data: unitUser } = await supabase
+          .from('companies_units')
+          .select('company_id,name')
+          .eq('user_id', session.user.id)
+          .maybeSingle();
+        companyId = unitUser?.company_id || '';
+        unitName = unitUser?.name || '';
+        setUnitFilter(unitName);
+      }
+    }
+    if (!companyId) return;
     const { data: defs } = await supabase
       .from('custom_fields')
       .select('field,value')
-      .eq('company_id', user.company_id);
+      .eq('company_id', companyId);
     const defMap: Record<string, string[]> = {};
     defs?.forEach((d: any) => {
       defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
     });
     setCustomFieldDefs(defMap);
-    const { data = [] } = await supabase
-      .from('employees')
-      .select('*')
-      .eq('company_id', user.company_id);
+    let data: any[] | null = null;
+    if (unitName) {
+      setUnits([]);
+      const res = await supabase
+        .from('employees')
+        .select('*')
+        .eq('company_id', companyId)
+        .eq('unit', unitName);
+      data = res.data || [];
+    } else {
+      const { data: unitRows } = await supabase
+        .from('companies_units')
+        .select('name')
+        .eq('company_id', companyId);
+      setUnits(unitRows?.map((u: any) => u.name) || []);
+      const res = await supabase
+        .from('employees')
+        .select('*')
+        .eq('company_id', companyId);
+      data = res.data || [];
+    }
     const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
     setEmployees(expanded);
     refreshCounts(expanded);
+    const hidden = [
+      'emergency_contact_name',
+      'emergency_contact_phone',
+      'emergency_contact_relation',
+      'resume_url',
+      'comments',
+    ];
     const cols = expanded.length
-      ? Object.keys(expanded[0]).filter((k) => k !== 'company_id' && k !== 'custom_fields')
+      ? Object.keys(expanded[0]).filter(
+          (k) =>
+            k !== 'company_id' &&
+            k !== 'custom_fields' &&
+            !hidden.includes(k)
+        )
       : [];
-    const all = Array.from(new Set([...cols, ...Object.keys(defMap)]));
+    const all = Array.from(new Set([...cols, ...Object.keys(defMap)])).filter(
+      (k) => !hidden.includes(k)
+    );
     setAllColumns(all);
-    const { data: viewRows } = await supabase
-      .from('employee_views')
-      .select('*')
-      .eq('user_id', session.user.id)
-      .order('created_at', { ascending: true });
-    let view = viewRows && viewRows.length ? viewRows[0] : null;
-    if (!view) {
-      const { data: created } = await supabase
+    if (canConfigViews) {
+      const { data: viewRows } = await supabase
         .from('employee_views')
-        .insert({
-          user_id: session.user.id,
-          name: 'Principal',
-          columns: defaultViewCols,
-          filters: [],
-        })
-        .select()
-        .single();
-      view = created;
-      setViews([created]);
-    } else {
+        .select('*')
+        .eq('user_id', session.user.id)
+        .order('created_at', { ascending: true });
+      let view = viewRows && viewRows.length ? viewRows[0] : null;
+      if (!view) {
+        const { data: created } = await supabase
+          .from('employee_views')
+          .insert({
+            user_id: session.user.id,
+            name: 'Principal',
+            columns: defaultViewCols,
+            filters: [],
+          })
+          .select()
+          .single();
+        view = created;
+        setViews([created]);
+      } else {
       setViews(viewRows);
     }
     setCurrentView(view);
     setColumns(view?.columns && view.columns.length ? view.columns : defaultViewCols);
     setFilters(view?.filters || []);
+    } else {
+      setViews([]);
+      setCurrentView(null);
+      let stored: string[] | null = null;
+      if (typeof window !== 'undefined') {
+        const raw = localStorage.getItem(lsKey);
+        stored = raw ? JSON.parse(raw) : null;
+      }
+      setColumns(stored && stored.length ? stored : defaultViewCols);
+      setFilters([]);
+    }
     setField(all[0] || '');
+    setAllowViewConfig(canConfigViews);
   };
 
   useEffect(() => {
@@ -199,11 +275,16 @@ export default function Employees() {
   };
 
   useEffect(() => {
-    if (!currentView) return;
-    supabase.from('employee_views').update({ columns }).eq('id', currentView.id);
-    setCurrentView((cv) => (cv ? { ...cv, columns } : cv));
-    setViews((vs) => vs.map((v) => (v.id === currentView.id ? { ...v, columns } : v)));
-  }, [columns, currentView?.id]);
+    if (currentView) {
+      supabase.from('employee_views').update({ columns }).eq('id', currentView.id);
+      setCurrentView((cv) => (cv ? { ...cv, columns } : cv));
+      setViews((vs) =>
+        vs.map((v) => (v.id === currentView.id ? { ...v, columns } : v))
+      );
+    } else if (userId && typeof window !== 'undefined') {
+      localStorage.setItem(`employeeCols:${userId}`, JSON.stringify(columns));
+    }
+  }, [columns, currentView?.id, userId]);
   // filters are saved explicitly when added or removed
 
   const isTextField = (f: string) => ['name', 'email'].includes(f);
@@ -289,6 +370,10 @@ export default function Employees() {
 
   const updateStatus = async (id: string, status: string) => {
     const updates: any = { status };
+    if (status === 'active') {
+      updates.termination_date = null;
+      updates.termination_reason = null;
+    }
     await supabase.from('employees').update(updates).eq('id', id);
     const newEmployees = employees.map((emp) =>
       emp.id === id ? { ...emp, ...updates } : emp
@@ -324,8 +409,10 @@ export default function Employees() {
     setDeleteId(null);
   };
 
-  const filtered = employees.filter((emp) =>
-    filters.every((f) => {
+  const filtered = employees.filter(
+    (emp) =>
+      (!unitFilter || emp.unit === unitFilter) &&
+      filters.every((f) => {
       const fieldValue = f.custom
         ? emp.custom_fields?.[f.field]
         : emp[f.field];
@@ -456,31 +543,51 @@ export default function Employees() {
         <div className="flex items-center gap-3">
           <Users className="h-5 w-5 text-brand" />
           <h2 className="text-2xl font-semibold">Lista dos funcionários</h2>
-          <select
-            className="border rounded p-1"
-            value={currentView?.id || ''}
-            onChange={(e) => {
-              const v = views.find((view) => view.id === e.target.value);
-              if (v) switchView(v);
-            }}
-          >
-            {views.map((v) => (
-              <option key={v.id} value={v.id}>
-                {v.name}
-              </option>
-            ))}
-          </select>
-          <Button variant="outline" size="sm" onClick={addView}>
-            Nova lista
-          </Button>
-          {currentView && currentView.name !== 'Principal' && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => deleteView(currentView.id)}
+          {allowViewConfig && (
+            <select
+              className="border rounded p-1"
+              value={currentView?.id || ''}
+              onChange={(e) => {
+                const v = views.find((view) => view.id === e.target.value);
+                if (v) switchView(v);
+              }}
             >
-              Excluir
-            </Button>
+              {views.map((v) => (
+                <option key={v.id} value={v.id}>
+                  {v.name}
+                </option>
+              ))}
+            </select>
+          )}
+          {units.length > 0 && (
+            <select
+              className="border rounded p-1"
+              value={unitFilter}
+              onChange={(e) => setUnitFilter(e.target.value)}
+            >
+              <option value="">Todas as filiais</option>
+              {units.map((u) => (
+                <option key={u} value={u}>
+                  {u}
+                </option>
+              ))}
+            </select>
+          )}
+          {allowViewConfig && (
+            <>
+              <Button variant="outline" size="sm" onClick={addView}>
+                Nova lista
+              </Button>
+              {currentView && currentView.name !== 'Principal' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => deleteView(currentView.id)}
+                >
+                  Excluir
+                </Button>
+              )}
+            </>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -751,7 +858,7 @@ export default function Employees() {
                 </td>
                 {columns.map((c) => (
                   <td key={c} className="border px-2 py-1 text-center">
-                    {emp[c]}
+                    {c === 'status' ? getStatusLabel(emp[c]) : emp[c]}
                   </td>
                 ))}
               </tr>
