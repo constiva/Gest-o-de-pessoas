@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutDashboard, Users, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Users, User as UserIcon, UserCog } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -13,20 +13,38 @@ export default function Sidebar() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       const user = data.user;
-      if (user) {
-        const { data: profileData } = await supabase
-          .from('users')
-          .select('name,email')
-          .eq('id', user.id)
-          .single();
-        if (profileData) setProfile(profileData);
+      if (!user) return;
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('name,email')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (profileData) {
+        setProfile(profileData);
+        return;
       }
+      const { data: companyUser } = await supabase
+        .from('companies_users')
+        .select('name,email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (companyUser) {
+        setProfile(companyUser);
+        return;
+      }
+      const { data: unitUser } = await supabase
+        .from('companies_units')
+        .select('name,email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (unitUser) setProfile(unitUser);
     });
   }, []);
 
   const links = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/employees', label: 'Funcionários', icon: Users },
+    { href: '/users', label: 'Usuários & Permissões', icon: UserCog },
   ];
 
   return (
