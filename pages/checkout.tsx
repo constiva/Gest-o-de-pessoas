@@ -120,16 +120,33 @@ export default function Checkout() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { router.replace('/login'); return; }
 
-      const { data: u, error: uerr } = await supabase
+      const { data: u } = await supabase
         .from('users')
         .select('id,name,email,company_id')
         .eq('id', user.id)
-        .single();
-
-      if (uerr || !u) { setError('Não foi possível carregar seu perfil.'); setLoading(false); return; }
-      if (u.company_id !== companyId) { setError('Você não pertence a esta empresa.'); setLoading(false); return; }
-      setProfile(u as Profile);
-      setEmail(u.email || '');
+        .maybeSingle();
+      let profileData: any = u;
+      if (!profileData) {
+        const { data: cu } = await supabase
+          .from('companies_users')
+          .select('user_id,name,email,company_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (cu) {
+          profileData = { id: cu.user_id, name: cu.name, email: cu.email, company_id: cu.company_id };
+        } else {
+          const { data: uu } = await supabase
+            .from('companies_units')
+            .select('user_id,name,email,company_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (uu) profileData = { id: uu.user_id, name: uu.name, email: uu.email, company_id: uu.company_id };
+        }
+      }
+      if (!profileData) { setError('Não foi possível carregar seu perfil.'); setLoading(false); return; }
+      if (profileData.company_id !== companyId) { setError('Você não pertence a esta empresa.'); setLoading(false); return; }
+      setProfile(profileData as Profile);
+      setEmail(profileData.email || '');
 
       const { data: p, error: perr } = await supabase
         .from('plans')
