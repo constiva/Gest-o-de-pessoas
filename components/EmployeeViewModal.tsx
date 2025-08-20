@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
-import { getFieldLabel, FIELD_GROUPS } from '../lib/utils';
+import { getFieldLabel, FIELD_GROUPS, getStatusLabel } from '../lib/utils';
 import { Columns, Printer, X } from 'lucide-react';
 
 interface Props {
@@ -60,7 +60,9 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
         .filter((f) => fields.includes(f) && employee[f])
         .map(
           (f) =>
-            `<tr><td class=\"label\">${getFieldLabel(f)}</td><td>${employee[f]}</td></tr>`
+            `<tr><td class=\"label\">${getFieldLabel(f)}</td><td>${
+              f === 'status' ? getStatusLabel(employee[f]) : employee[f]
+            }</td></tr>`
         )
         .join('');
       if (rows) {
@@ -126,6 +128,26 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
             <Printer className="h-4 w-4" /> Imprimir
           </Button>
         </div>
+        {(() => {
+          const baseRows = ['name', 'email', 'phone', 'cpf', 'birth_date']
+            .filter((f) => fields.includes(f) && (employee as any)[f])
+            .map((f) => [f, (employee as any)[f]] as [string, any]);
+          return baseRows.length ? (
+            <div className="mb-4">
+              <h3 className="font-semibold mb-2">Dados do funcionário</h3>
+              <table className="w-full border border-purple-100 text-sm">
+                <tbody>
+                  {baseRows.map(([k, v]) => (
+                    <tr key={k} className="odd:bg-white even:bg-purple-50/40">
+                      <td className="border p-2 font-medium">{getFieldLabel(k)}</td>
+                      <td className="border p-2">{String(v)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : null;
+        })()}
         {FIELD_GROUPS.map((group) => {
           const groupRows = group.fields
             .filter((f) =>
@@ -141,7 +163,9 @@ export default function EmployeeViewModal({ id, onClose }: Props) {
                   {groupRows.map(([k, v]) => (
                     <tr key={k} className="odd:bg-white even:bg-purple-50/40">
                       <td className="border p-2 font-medium">{getFieldLabel(k)}</td>
-                      <td className="border p-2">{String(v)}</td>
+                      <td className="border p-2">
+                        {k === 'status' ? getStatusLabel(String(v)) : String(v)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
