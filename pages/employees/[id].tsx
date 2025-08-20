@@ -10,7 +10,7 @@ export default function EditEmployee() {
   const [employee, setEmployee] = useState<any>(null);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || id === 'new') return;
     const load = async () => {
       const { data } = await supabase
         .from('employees')
@@ -22,7 +22,16 @@ export default function EditEmployee() {
     load();
   }, [id]);
 
+  if (id === 'new') {
+    return (
+      <Layout>
+        <EmployeeForm />
+      </Layout>
+    );
+  }
+
   if (!employee) return <p>Carregando...</p>;
+
   return (
     <Layout>
       <EmployeeForm employee={employee} />
