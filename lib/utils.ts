@@ -16,23 +16,20 @@ export const FIELD_LABELS: Record<string, string> = {
   email: 'E-mail',
   phone: 'Telefone',
   cpf: 'CPF/CNPJ',
+  birth_date: 'Data de nascimento',
   street: 'Rua',
+  zip: 'CEP',
   city: 'Cidade',
   state: 'Estado',
-  zip: 'CEP',
   position: 'Cargo',
   department: 'Departamento',
+  unit: 'Filial',
   salary: 'Salário',
   hire_date: 'Data de admissão',
   termination_date: 'Data de desligamento',
   termination_reason: 'Motivo do desligamento',
   status: 'Status',
   gender: 'Gênero',
-  emergency_contact_name: 'Contato de emergência (nome)',
-  emergency_contact_phone: 'Contato de emergência (telefone)',
-  emergency_contact_relation: 'Contato de emergência (relação)',
-  resume_url: 'Currículo',
-  comments: 'Comentários',
 };
 
 export function getFieldLabel(field: string) {
@@ -42,20 +39,24 @@ export function getFieldLabel(field: string) {
 export const FIELD_GROUPS = [
   {
     title: 'Informações pessoais',
-    fields: ['name', 'email', 'phone', 'cpf', 'gender'],
+    fields: ['gender'],
   },
-  { title: 'Endereço', fields: ['street', 'city', 'state', 'zip'] },
+  {
+    title: 'Endereço',
+    fields: ['city', 'state'],
+  },
   {
     title: 'Informações profissionais',
-    fields: ['position', 'department', 'salary', 'hire_date', 'status'],
+    fields: ['position', 'department', 'unit', 'salary', 'hire_date', 'status'],
   },
-  {
-    title: 'Contato de emergência',
-    fields: [
-      'emergency_contact_name',
-      'emergency_contact_phone',
-      'emergency_contact_relation',
-    ],
-  },
-  { title: 'Outros', fields: ['resume_url', 'comments'] },
 ];
+
+export const STATUS_LABELS: Record<string, string> = {
+  active: 'Ativo',
+  inactive: 'Inativo',
+  dismissed: 'Desligado',
+};
+
+export function getStatusLabel(status: string) {
+  return STATUS_LABELS[status] || status;
+}
