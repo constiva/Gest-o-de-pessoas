@@ -10,11 +10,13 @@ const buttonVariants = cva(
       variant: {
         default: 'bg-brand text-white hover:bg-brand/90',
         outline: 'border border-brand text-brand hover:bg-brand/10',
+        destructive: 'bg-red-500 text-white hover:bg-red-600',
       },
       size: {
         default: 'h-10 px-4 py-2',
         sm: 'h-9 px-3',
         lg: 'h-11 px-8',
+        icon: 'h-10 w-10',
       },
     },
     defaultVariants: {
