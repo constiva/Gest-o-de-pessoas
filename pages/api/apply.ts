@@ -96,14 +96,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
   const { error: appError } = await supabase
     .from('applications')
-    .insert({
-      company_id: job.company_id,
-      job_id,
-      talent_id: talent.id,
-      stage_id: firstStage?.id || null,
-    });
+    .upsert(
+      {
+        company_id: job.company_id,
+        job_id,
+        talent_id: talent.id,
+        stage_id: firstStage?.id || null,
+      },
+      { onConflict: 'job_id,talent_id' }
+    );
 
   if (appError) {
+    console.error('Application insert error', appError);
     return res.status(400).json({ error: appError.message });
   }
 
