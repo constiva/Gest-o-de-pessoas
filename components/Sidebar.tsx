@@ -1,6 +1,6 @@
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { LayoutDashboard, Users, User as UserIcon } from 'lucide-react';
+import { LayoutDashboard, Users, User as UserIcon, UserCog, BarChart3, Briefcase } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
@@ -13,20 +13,40 @@ export default function Sidebar() {
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
       const user = data.user;
-      if (user) {
-        const { data: profileData } = await supabase
-          .from('users')
-          .select('name,email')
-          .eq('id', user.id)
-          .single();
-        if (profileData) setProfile(profileData);
+      if (!user) return;
+      const { data: profileData } = await supabase
+        .from('users')
+        .select('name,email')
+        .eq('id', user.id)
+        .maybeSingle();
+      if (profileData) {
+        setProfile(profileData);
+        return;
       }
+      const { data: companyUser } = await supabase
+        .from('companies_users')
+        .select('name,email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (companyUser) {
+        setProfile(companyUser);
+        return;
+      }
+      const { data: unitUser } = await supabase
+        .from('companies_units')
+        .select('name,email')
+        .eq('user_id', user.id)
+        .maybeSingle();
+      if (unitUser) setProfile(unitUser);
     });
   }, []);
 
   const links = [
     { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { href: '/employees', label: 'Funcionários', icon: Users },
+    { href: '/recruitment', label: 'Recrutamento & Seleção', icon: Briefcase },
+    { href: '/metrics', label: 'Métricas', icon: BarChart3 },
+    { href: '/users', label: 'Usuários & Permissões', icon: UserCog },
   ];
 
   return (
@@ -58,6 +78,13 @@ export default function Sidebar() {
           <div className="absolute left-3 right-3 bottom-12 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-md shadow-lg p-3 text-sm">
             <p className="font-medium">{profile.name}</p>
             <p className="text-xs text-gray-500 mb-2">{profile.email}</p>
+            <Link
+              href="/account"
+              className="block text-brand hover:underline mb-1"
+              onClick={() => setMenuOpen(false)}
+            >
+              Conta
+            </Link>
             <Link
               href="/upgrade"
               className="block text-brand hover:underline"
