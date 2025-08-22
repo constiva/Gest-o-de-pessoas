@@ -43,17 +43,55 @@ export default function Upgrade() {
       }
 
       // profile
+      let name = '';
+      let emailAddr = '';
+      let companyId = '';
+      let currentPlan: string | null | undefined = null;
       const { data: u } = await supabase
         .from('users')
         .select('name,email,company_id, companies:company_id ( plan )')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
+      if (u) {
+        name = u.name || '';
+        emailAddr = u.email || '';
+        companyId = u.company_id || '';
+        currentPlan = u.companies?.[0]?.plan ?? null;
+      } else {
+        const { data: cu } = await supabase
+          .from('companies_users')
+          .select('name,email,company_id')
+          .eq('user_id', user.id)
+          .maybeSingle();
+        if (cu) {
+          name = cu.name || '';
+          emailAddr = cu.email || '';
+          companyId = cu.company_id || '';
+        } else {
+          const { data: uu } = await supabase
+            .from('companies_units')
+            .select('name,email,company_id')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          name = uu?.name || '';
+          emailAddr = uu?.email || '';
+          companyId = uu?.company_id || '';
+        }
+        if (companyId) {
+          const { data: comp } = await supabase
+            .from('companies')
+            .select('plan')
+            .eq('id', companyId)
+            .single();
+          currentPlan = comp?.plan ?? null;
+        }
+      }
 
       setProfile({
-        name: u?.name ?? '',
-        email: u?.email ?? '',
-        companyId: u?.company_id ?? '',
-        currentPlan: u?.companies?.[0]?.plan ?? null
+        name,
+        email: emailAddr,
+        companyId,
+        currentPlan: currentPlan ?? null,
       });
 
       // plans (ativos)
