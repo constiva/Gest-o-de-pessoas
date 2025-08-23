@@ -59,3 +59,13 @@ export const FIELD_GROUPS = [
   },
   { title: 'Outros', fields: ['resume_url', 'comments'] },
 ];
+
+export function getSourceLabel(source: string) {
+  const map: Record<string, string> = {
+    career_site: 'Site',
+    referral: 'Indicação',
+    linkedin: 'LinkedIn',
+    other: 'Outro',
+  };
+  return map[source] || source;
+}
