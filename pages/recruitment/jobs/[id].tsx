@@ -9,6 +9,7 @@ import { supabase } from '../../../lib/supabaseClient';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { getSourceLabel } from '../../../lib/utils';
+import { Plus, X } from 'lucide-react';
 
 interface Job {
   id: string;
@@ -40,6 +41,18 @@ export default function JobDetails() {
   const [managers, setManagers] = useState<{ user_id: string; name: string }[]>([]);
   const [candidateCount, setCandidateCount] = useState(0);
   const [sourceDist, setSourceDist] = useState<Record<string, number>>({});
+  const [workMode, setWorkMode] = useState<'remote' | 'onsite' | 'hybrid'>('remote');
+  const [salaryMin, setSalaryMin] = useState('');
+  const [salaryMax, setSalaryMax] = useState('');
+  const [contractOptions, setContractOptions] = useState<string[]>([
+    'CLT',
+    'PJ',
+    'Estágio',
+    'Trainee',
+    'Menor Aprendiz',
+  ]);
+  const [newContract, setNewContract] = useState('');
+  const [showMsg, setShowMsg] = useState(false);
 
   useEffect(() => {
     if (!id || Array.isArray(id)) return;
@@ -52,7 +65,27 @@ export default function JobDetails() {
       .maybeSingle()
       .then(async ({ data }) => {
         if (data) {
-          setJob(data as Job);
+          const jobData = data as Job;
+          if (jobData.work_location) {
+            if (jobData.work_location === 'remote') {
+              setWorkMode('remote');
+              jobData.work_location = '';
+            } else if (jobData.work_location.includes('|')) {
+              const [mode, addr] = jobData.work_location.split('|');
+              setWorkMode(mode as 'remote' | 'onsite' | 'hybrid');
+              jobData.work_location = addr;
+            }
+          }
+          if (jobData.salary_range) {
+            const [min, max] = jobData.salary_range.split('-');
+            setSalaryMin(min || '');
+            setSalaryMax(max || '');
+          }
+          if (jobData.workload) {
+            const m = jobData.workload.match(/\d+/);
+            jobData.workload = m ? m[0] : jobData.workload;
+          }
+          setJob(jobData);
           setFields((data.form_fields as string[]) || ['name', 'email']);
           const { data: mgrs } = await supabase
             .from('companies_users')
@@ -183,18 +216,53 @@ export default function JobDetails() {
                     </div>
                     <div>
                       <label className="text-sm">Prazo estimado</label>
-                      <Input
-                        type="date"
-                        value={job.sla || ''}
-                        onChange={(e) => setJob({ ...job, sla: e.target.value })}
-                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="date"
+                          value={job.sla || ''}
+                          onChange={(e) => setJob({ ...job, sla: e.target.value })}
+                        />
+                        {job.opened_at && job.sla && (
+                          <span className="text-sm text-gray-600">
+                            {Math.ceil(
+                              (new Date(job.sla).getTime() -
+                                new Date(job.opened_at).getTime()) /
+                                (1000 * 60 * 60 * 24)
+                            )}{' '}
+                            dias
+                          </span>
+                        )}
+                      </div>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm">Local de trabalho</label>
-                      <Input
-                        value={job.work_location || ''}
-                        onChange={(e) => setJob({ ...job, work_location: e.target.value })}
-                      />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex gap-2">
+                          {[
+                            { id: 'onsite', label: 'Presencial' },
+                            { id: 'remote', label: 'Home Office' },
+                            { id: 'hybrid', label: 'Híbrido' },
+                          ].map((opt) => (
+                            <label key={opt.id} className="flex items-center gap-1">
+                              <input
+                                type="radio"
+                                name="workmode"
+                                value={opt.id}
+                                checked={workMode === opt.id}
+                                onChange={() => setWorkMode(opt.id as any)}
+                              />
+                              {opt.label}
+                            </label>
+                          ))}
+                        </div>
+                        {workMode !== 'remote' && (
+                          <Input
+                            placeholder="Endereço"
+                            value={job.work_location || ''}
+                            onChange={(e) => setJob({ ...job, work_location: e.target.value })}
+                          />
+                        )}
+                      </div>
                     </div>
                   </div>
                 </section>
@@ -213,36 +281,123 @@ export default function JobDetails() {
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm">Responsabilidades principais</label>
-                      <textarea
-                        className="w-full border rounded p-2"
-                        rows={4}
-                        value={(job.responsibilities || []).join('\n')}
-                        onChange={(e) =>
-                          setJob({ ...job, responsibilities: e.target.value.split('\n') })
+                      {(job.responsibilities || []).map((r, i) => (
+                        <div key={i} className="flex gap-2 mb-1">
+                          <Input
+                            value={r}
+                            onChange={(e) => {
+                              const arr = [...(job.responsibilities || [])];
+                              arr[i] = e.target.value;
+                              setJob({ ...job, responsibilities: arr });
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              const arr = [...(job.responsibilities || [])];
+                              arr.splice(i, 1);
+                              setJob({ ...job, responsibilities: arr });
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setJob({
+                            ...job,
+                            responsibilities: [...(job.responsibilities || []), ''],
+                          })
                         }
-                      />
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm">Requisitos obrigatórios</label>
-                      <textarea
-                        className="w-full border rounded p-2"
-                        rows={4}
-                        value={(job.requirements || []).join('\n')}
-                        onChange={(e) =>
-                          setJob({ ...job, requirements: e.target.value.split('\n') })
+                      {(job.requirements || []).map((r, i) => (
+                        <div key={i} className="flex gap-2 mb-1">
+                          <Input
+                            value={r}
+                            onChange={(e) => {
+                              const arr = [...(job.requirements || [])];
+                              arr[i] = e.target.value;
+                              setJob({ ...job, requirements: arr });
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              const arr = [...(job.requirements || [])];
+                              arr.splice(i, 1);
+                              setJob({ ...job, requirements: arr });
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setJob({
+                            ...job,
+                            requirements: [...(job.requirements || []), ''],
+                          })
                         }
-                      />
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm">Diferenciais desejáveis</label>
-                      <textarea
-                        className="w-full border rounded p-2"
-                        rows={4}
-                        value={(job.desirables || []).join('\n')}
-                        onChange={(e) =>
-                          setJob({ ...job, desirables: e.target.value.split('\n') })
+                      {(job.desirables || []).map((r, i) => (
+                        <div key={i} className="flex gap-2 mb-1">
+                          <Input
+                            value={r}
+                            onChange={(e) => {
+                              const arr = [...(job.desirables || [])];
+                              arr[i] = e.target.value;
+                              setJob({ ...job, desirables: arr });
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="icon"
+                            onClick={() => {
+                              const arr = [...(job.desirables || [])];
+                              arr.splice(i, 1);
+                              setJob({ ...job, desirables: arr });
+                            }}
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() =>
+                          setJob({
+                            ...job,
+                            desirables: [...(job.desirables || []), ''],
+                          })
                         }
-                      />
+                      >
+                        <Plus className="h-4 w-4" />
+                      </Button>
                     </div>
                   </div>
                 </section>
@@ -251,32 +406,95 @@ export default function JobDetails() {
                   <h2 className="font-medium mb-2">Informações estratégicas</h2>
                   <div className="grid gap-2 sm:grid-cols-2">
                     <div>
-                      <label className="text-sm">Faixa salarial / benefícios</label>
-                      <Input
-                        value={job.salary_range || ''}
-                        onChange={(e) => setJob({ ...job, salary_range: e.target.value })}
-                      />
+                      <label className="text-sm">Faixa salarial</label>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Mínimo"
+                          value={salaryMin}
+                          onChange={(e) => setSalaryMin(e.target.value)}
+                        />
+                        <Input
+                          placeholder="Máximo"
+                          value={salaryMax}
+                          onChange={(e) => setSalaryMax(e.target.value)}
+                        />
+                      </div>
                     </div>
                     <div>
                       <label className="text-sm">Tipo de contrato</label>
-                      <Input
-                        value={job.contract_type || ''}
-                        onChange={(e) => setJob({ ...job, contract_type: e.target.value })}
-                      />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex flex-wrap gap-2">
+                          {contractOptions.map((opt) => (
+                            <div
+                              key={opt}
+                              className={`flex items-center gap-1 border rounded px-2 py-1 text-sm ${
+                                job.contract_type === opt
+                                  ? 'bg-blue-600 text-white'
+                                  : ''
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => setJob({ ...job, contract_type: opt })}
+                              >
+                                {opt}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setContractOptions(
+                                    contractOptions.filter((o) => o !== opt)
+                                  )
+                                }
+                              >
+                                <X className="h-3 w-3" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                        <div className="flex gap-2">
+                          <Input
+                            placeholder="Adicionar tipo"
+                            value={newContract}
+                            onChange={(e) => setNewContract(e.target.value)}
+                          />
+                          <Button
+                            type="button"
+                            onClick={() => {
+                              if (!newContract) return;
+                              setContractOptions([...contractOptions, newContract]);
+                              setNewContract('');
+                            }}
+                          >
+                            <Plus className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                     <div>
                       <label className="text-sm">Carga horária</label>
-                      <Input
-                        value={job.workload || ''}
-                        onChange={(e) => setJob({ ...job, workload: e.target.value })}
-                      />
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          value={job.workload || ''}
+                          onChange={(e) => setJob({ ...job, workload: e.target.value })}
+                        />
+                        <span className="text-sm">horas semanais</span>
+                      </div>
                     </div>
                     <div>
                       <label className="text-sm">Nível de senioridade</label>
-                      <Input
+                      <select
+                        className="border p-2 rounded w-full"
                         value={job.seniority || ''}
                         onChange={(e) => setJob({ ...job, seniority: e.target.value })}
-                      />
+                      >
+                        <option value="">--</option>
+                        <option value="junior">Junior</option>
+                        <option value="pleno">Pleno</option>
+                        <option value="senior">Senior</option>
+                        <option value="especialista">Especialista</option>
+                      </select>
                     </div>
                     <div className="sm:col-span-2">
                       <label className="text-sm">Benefícios</label>
@@ -312,15 +530,23 @@ export default function JobDetails() {
                       status: job.status,
                       opened_at: job.opened_at,
                       sla: job.sla,
-                      work_location: job.work_location,
+                      work_location:
+                        workMode === 'remote'
+                          ? 'remote'
+                          : `${workMode}|${job.work_location || ''}`,
                       summary: job.summary,
                       responsibilities: job.responsibilities,
                       requirements: job.requirements,
                       desirables: job.desirables,
-                      salary_range: job.salary_range,
+                      salary_range:
+                        salaryMin || salaryMax
+                          ? `${salaryMin}-${salaryMax}`
+                          : null,
                       benefits: job.benefits,
                       contract_type: job.contract_type,
-                      workload: job.workload,
+                      workload: job.workload
+                        ? `${job.workload} horas semanais`
+                        : null,
                       seniority: job.seniority,
                     };
                     const { error } = await supabase
@@ -330,11 +556,19 @@ export default function JobDetails() {
                     if (error) {
                       console.error(error);
                       alert(error.message);
+                    } else {
+                      setShowMsg(true);
+                      setTimeout(() => setShowMsg(false), 3000);
                     }
                   }}
                 >
                   Salvar
                 </Button>
+                {showMsg && (
+                  <div className="fixed top-4 right-4 bg-green-100 border border-green-400 text-green-800 px-4 py-2 rounded">
+                    Alterações salvas com sucesso
+                  </div>
+                )}
               </div>
             )}
           </TabsContent>
