@@ -5,3 +5,28 @@
 body {
   @apply bg-gray-50 text-gray-900 dark:bg-gray-900 dark:text-gray-100 antialiased;
 }
+
+input[type='color'] {
+  -webkit-appearance: none;
+  border: none;
+  padding: 0;
+  border-radius: 9999px;
+}
+input[type='color']::-webkit-color-swatch-wrapper {
+  padding: 0;
+  border-radius: 9999px;
+}
+input[type='color']::-webkit-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+input[type='color']::-moz-color-swatch {
+  border: none;
+  border-radius: 9999px;
+}
+input[list]::-webkit-calendar-picker-indicator {
+  display: none;
+}
+input[list] {
+  appearance: none;
+}
