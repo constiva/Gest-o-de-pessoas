@@ -22,18 +22,52 @@ export default function Login() {
       return;
     }
     const userId = data.user?.id;
+    let companyId: string | undefined;
+    let companyRole = 'viewer';
+
     const { data: profile } = await supabase
       .from('users')
       .select('company_id')
       .eq('id', userId)
-      .single();
+      .maybeSingle();
+
+    if (profile) {
+      companyId = profile.company_id;
+      companyRole = 'admin';
+    } else {
+      const { data: compUser } = await supabase
+        .from('companies_users')
+        .select('company_id, role')
+        .eq('user_id', userId)
+        .maybeSingle();
+
+      if (compUser) {
+        companyId = compUser.company_id;
+        companyRole = compUser.role;
+      } else {
+        const { data: unitUser } = await supabase
+          .from('companies_units')
+          .select('company_id')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+        companyId = unitUser?.company_id;
+        companyRole = 'manager';
+      }
+    }
+
+    if (companyId) {
+      await supabase.auth.updateUser({
+        data: { company_id: companyId, company_role: companyRole },
+      });
+    }
     const { data: company } = await supabase
       .from('companies')
       .select('maxemployees')
-      .eq('id', profile?.company_id)
+      .eq('id', companyId)
       .single();
     if (company?.maxemployees === 0) {
-      router.push(`/pending?companyId=${profile?.company_id}`);
+      router.push(`/pending?companyId=${companyId}`);
     } else {
       router.push('/dashboard');
     }
