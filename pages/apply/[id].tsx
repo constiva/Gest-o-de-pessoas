@@ -101,5 +101,6 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
   if (!job) {
     return { notFound: true };
   }
+  await supabase.rpc('increment_job_link_click', { j: job.id });
   return { props: { job } };
 };
