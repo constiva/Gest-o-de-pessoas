@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Layout from '../../../components/Layout';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui/tabs';
 import JobTalentBoard from '../../../components/recruitment/JobTalentBoard';
+import JobMetrics from '../../../components/recruitment/JobMetrics';
 import { supabase } from '../../../lib/supabaseClient';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
@@ -573,7 +574,7 @@ export default function JobDetails() {
             )}
           </TabsContent>
           <TabsContent value="metrics">
-            <p>Métricas em construção.</p>
+            {id && !Array.isArray(id) && <JobMetrics jobId={id} />}
           </TabsContent>
           <TabsContent value="ads">
             <div className="space-y-4">
