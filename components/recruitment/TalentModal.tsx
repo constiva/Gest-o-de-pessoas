@@ -27,6 +27,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
   const [seniority, setSeniority] = useState('');
   const [availability, setAvailability] = useState('');
   const [source, setSource] = useState('');
+  const [status, setStatus] = useState('active');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
@@ -39,7 +40,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
       const { data: talent } = await supabase
         .from('talents')
         .select(
-          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,comment,talent_tag_map(tag:talent_tags(name,color))'
+          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,status,comment,talent_tag_map(tag:talent_tags(name,color))'
         )
         .eq('id', talentId)
         .single();
@@ -54,6 +55,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         setSeniority(talent.seniority || '');
         setAvailability(talent.availability || '');
         setSource(talent.source || '');
+        setStatus(talent.status || 'active');
         setComment(talent.comment || '');
         setTags(
           talent.talent_tag_map?.map((m: any) => ({
@@ -119,6 +121,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         seniority,
         availability,
         source,
+        status,
         comment,
       })
       .eq('id', talentId);
@@ -258,6 +261,18 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
               <option value="import">Importação</option>
               <option value="event">Evento</option>
               <option value="other">Outro</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Status</label>
+            <select
+              className="w-full border p-2 rounded appearance-none pr-6"
+              value={status}
+              onChange={(e) => setStatus(e.target.value)}
+            >
+              <option value="active">Ativo</option>
+              <option value="withdrawn">Desistente</option>
+              <option value="rejected">Reprovado</option>
             </select>
           </div>
           <div className="sm:col-span-2">

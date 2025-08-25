@@ -3,7 +3,7 @@ import { supabase } from '../../lib/supabaseClient';
 import { Button } from '../ui/button';
 import StageSidebar from '../StageSidebar';
 import TalentModal from './TalentModal';
-import { getSourceLabel } from '../../lib/utils';
+import { getSourceLabel, cn } from '../../lib/utils';
 import { Clock } from 'lucide-react';
 
 interface Stage {
@@ -25,6 +25,7 @@ interface ApplicationItem {
   created_at: string;
   source: string | null;
   tags: Tag[];
+  status: string;
 }
 
 const DEFAULT_STAGES = [
@@ -50,6 +51,7 @@ export default function JobTalentBoard({ jobId }: Props) {
     talentId: string;
     appId: string;
   } | null>(null);
+  const [statusFilter, setStatusFilter] = useState('active');
 
   const load = async () => {
     const {
@@ -80,7 +82,7 @@ export default function JobTalentBoard({ jobId }: Props) {
     const { data: appData } = await supabase
       .from('applications')
       .select(
-        'id,stage_id,talent:talents(id,name,created_at,source,talent_tag_map(tag:talent_tags(name,color)))'
+        'id,stage_id,talent:talents(id,name,created_at,source,status,talent_tag_map(tag:talent_tags(name,color)))'
       )
       .eq('company_id', compId)
       .eq('job_id', jobId);
@@ -97,6 +99,7 @@ export default function JobTalentBoard({ jobId }: Props) {
             name: m.tag.name,
             color: m.tag.color || '#a855f7',
           })) || [],
+        status: a.talent.status,
       })) || [];
     setItems(mapped);
   };
@@ -138,7 +141,9 @@ export default function JobTalentBoard({ jobId }: Props) {
 
   const grouped = stages.map((s) => ({
     stage: s,
-    items: items.filter((t) => t.stage_id === s.id),
+    items: items.filter(
+      (t) => t.stage_id === s.id && t.status === statusFilter
+    ),
   }));
 
   return (
@@ -148,6 +153,25 @@ export default function JobTalentBoard({ jobId }: Props) {
         <Button variant="outline" onClick={() => setStageOpen(true)}>
           Etapas
         </Button>
+      </div>
+      <div className="mb-4 grid w-full grid-cols-3 overflow-hidden rounded">
+        {[
+          { value: 'active', label: 'Ativos', color: 'bg-blue-500' },
+          { value: 'withdrawn', label: 'Desistentes', color: 'bg-yellow-400' },
+          { value: 'rejected', label: 'Reprovados', color: 'bg-red-500' },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => setStatusFilter(opt.value)}
+            className={cn(
+              'py-2 text-center text-sm font-medium text-white',
+              opt.color,
+              statusFilter === opt.value ? 'opacity-100' : 'opacity-50'
+            )}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
       <div className="flex gap-4 overflow-x-auto">
         {grouped.map(({ stage, items }) => (
