@@ -9,6 +9,7 @@ create type job_status as enum ('open','closed','frozen');
 create type application_status as enum ('applied','screening','interview','offer','admitted','rejected','withdrawn');
 create type candidate_source as enum ('career_site','referral','linkedin','import','event','other');
 create type rejection_reason as enum ('lack_of_skill','cultural_fit','salary','position_filled','candidate_withdrew','other');
+create type talent_status as enum ('active','withdrawn','rejected');
 
 -- Talents
 create table if not exists talents (
@@ -27,6 +28,7 @@ create table if not exists talents (
   seniority text,
   availability text,
   source candidate_source,
+  status talent_status default 'active',
   consent_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
