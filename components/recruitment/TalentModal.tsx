@@ -27,6 +27,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
   const [seniority, setSeniority] = useState('');
   const [availability, setAvailability] = useState('');
   const [source, setSource] = useState('');
+  const [status, setStatus] = useState('active');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
@@ -39,7 +40,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
       const { data: talent } = await supabase
         .from('talents')
         .select(
-          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,comment,talent_tag_map(tag:talent_tags(name,color))'
+          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,status,comment,talent_tag_map(tag:talent_tags(name,color))'
         )
         .eq('id', talentId)
         .single();
@@ -54,6 +55,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         setSeniority(talent.seniority || '');
         setAvailability(talent.availability || '');
         setSource(talent.source || '');
+        setStatus(talent.status || 'active');
         setComment(talent.comment || '');
         setTags(
           talent.talent_tag_map?.map((m: any) => ({
@@ -119,6 +121,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         seniority,
         availability,
         source,
+        status,
         comment,
       })
       .eq('id', talentId);
@@ -259,6 +262,30 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
               <option value="event">Evento</option>
               <option value="other">Outro</option>
             </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Status</label>
+            <div className="flex border-b border-gray-200">
+              {[
+                { value: 'active', label: 'Ativo' },
+                { value: 'withdrawn', label: 'Desistente' },
+                { value: 'rejected', label: 'Reprovado' },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setStatus(opt.value)}
+                  className={
+                    'flex-1 px-4 py-2 text-sm font-medium ' +
+                    (status === opt.value
+                      ? 'border-b-2 border-brand text-brand'
+                      : 'text-gray-500')
+                  }
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <div className="sm:col-span-2">
             <div className="flex items-center justify-between mb-1">
