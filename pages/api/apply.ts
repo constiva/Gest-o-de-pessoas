@@ -107,6 +107,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: existingErr.message });
   }
 
+  let appId = existingApp?.id;
   let appError;
   if (existingApp) {
     ({ error: appError } = await supabase
@@ -114,17 +115,39 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       .update({ stage_id: firstStage?.id || null })
       .eq('id', existingApp.id));
   } else {
-    ({ error: appError } = await supabase.from('applications').insert({
-      company_id: job.company_id,
-      job_id,
-      talent_id: talent.id,
-      stage_id: firstStage?.id || null,
-    }));
+    const { data: inserted, error } = await supabase
+      .from('applications')
+      .insert({
+        company_id: job.company_id,
+        job_id,
+        talent_id: talent.id,
+        stage_id: firstStage?.id || null,
+      })
+      .select('id')
+      .single();
+    appError = error;
+    appId = inserted?.id;
   }
 
-  if (appError) {
+  if (appError || !appId) {
     console.error('Application save error', appError);
-    return res.status(400).json({ error: appError.message });
+    return res.status(400).json({ error: appError?.message || 'Erro ao salvar candidatura' });
+  }
+
+  if (firstStage?.id) {
+    const today = new Date().toISOString().split('T')[0];
+    const { data: existingStage } = await supabase
+      .from('application_stage_dates')
+      .select('day_in')
+      .eq('application_id', appId)
+      .eq('stage_id', firstStage.id)
+      .maybeSingle();
+    await supabase.from('application_stage_dates').upsert({
+      application_id: appId,
+      stage_id: firstStage.id,
+      day_in: existingStage?.day_in || today,
+      day_out: null,
+    });
   }
 
   return res.status(200).json({ success: true });
