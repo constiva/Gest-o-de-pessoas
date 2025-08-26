@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { Button } from '../ui/button';
-import { X, Settings } from 'lucide-react';
+import { X, Settings, ChevronDown } from 'lucide-react';
 import TagSidebar from '../TagSidebar';
 
 interface Tag {
@@ -27,6 +27,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
   const [seniority, setSeniority] = useState('');
   const [availability, setAvailability] = useState('');
   const [source, setSource] = useState('');
+  const [status, setStatus] = useState('active');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
@@ -39,7 +40,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
       const { data: talent } = await supabase
         .from('talents')
         .select(
-          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,comment,talent_tag_map(tag:talent_tags(name,color))'
+          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,status,comment,talent_tag_map(tag:talent_tags(name,color))'
         )
         .eq('id', talentId)
         .single();
@@ -54,6 +55,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         setSeniority(talent.seniority || '');
         setAvailability(talent.availability || '');
         setSource(talent.source || '');
+        setStatus(talent.status || 'active');
         setComment(talent.comment || '');
         setTags(
           talent.talent_tag_map?.map((m: any) => ({
@@ -119,6 +121,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         seniority,
         availability,
         source,
+        status,
         comment,
       })
       .eq('id', talentId);
@@ -230,11 +233,20 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Senioridade</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={seniority}
-              onChange={(e) => setSeniority(e.target.value)}
-            />
+            <div className="relative">
+              <select
+                className="w-full border p-2 rounded appearance-none pr-8"
+                value={seniority}
+                onChange={(e) => setSeniority(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                <option value="junior">Junior</option>
+                <option value="pleno">Pleno</option>
+                <option value="senior">Senior</option>
+                <option value="especialista">Especialista</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+            </div>
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Disponibilidade</label>
@@ -246,19 +258,44 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
           </div>
           <div>
             <label className="block text-sm font-medium mb-1">Fonte</label>
-            <select
-              className="w-full border p-2 rounded appearance-none pr-6"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            >
-              <option value="">Selecione</option>
-              <option value="career_site">Site</option>
-              <option value="referral">Indicação</option>
-              <option value="linkedin">LinkedIn</option>
-              <option value="import">Importação</option>
-              <option value="event">Evento</option>
-              <option value="other">Outro</option>
-            </select>
+            <div className="relative">
+              <select
+                className="w-full border p-2 rounded appearance-none pr-8"
+                value={source}
+                onChange={(e) => setSource(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                <option value="career_site">Site</option>
+                <option value="referral">Indicação</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="import">Importação</option>
+                <option value="event">Evento</option>
+                <option value="other">Outro</option>
+              </select>
+              <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Status</label>
+            <div className="space-y-2">
+              {[
+                { value: 'active', label: 'Ativo' },
+                { value: 'withdrawn', label: 'Desistente' },
+                { value: 'rejected', label: 'Reprovado' },
+              ].map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="status"
+                    value={opt.value}
+                    checked={status === opt.value}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="h-4 w-4 accent-brand"
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
           </div>
           <div className="sm:col-span-2">
             <div className="flex items-center justify-between mb-1">
@@ -284,9 +321,9 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex-1">
+              <div className="flex-1 relative">
                 <input
-                  className="w-full border p-2 rounded appearance-none"
+                  className="w-full border p-2 rounded appearance-none pr-8"
                   placeholder="Adicionar tag"
                   value={newTag}
                   list="tag-suggestions"
@@ -297,6 +334,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
                     setNewColor(found?.color || '#a855f7');
                   }}
                 />
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
               </div>
               <datalist id="tag-suggestions">
                 {suggestions.map((s) => (
