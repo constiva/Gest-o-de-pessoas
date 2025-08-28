@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { GripVertical } from 'lucide-react';
 import { supabase } from '../lib/supabaseClient';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
@@ -14,13 +15,15 @@ interface Props {
   open: boolean;
   onClose: () => void;
   jobId?: string;
+  onOrderChange?: (stages: Stage[]) => void;
 }
 
-export default function StageSidebar({ open, onClose, jobId }: Props) {
+export default function StageSidebar({ open, onClose, jobId, onOrderChange }: Props) {
   const [stages, setStages] = useState<Stage[]>([]);
   const [companyId, setCompanyId] = useState('');
   const [name, setName] = useState('');
   const [sla, setSla] = useState('');
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -42,24 +45,55 @@ export default function StageSidebar({ open, onClose, jobId }: Props) {
       if (jobId) query.eq('job_id', jobId); else query.is('job_id', null);
       const { data } = await query;
       setStages(data || []);
+      onOrderChange?.((data || []).sort((a, b) => a.position - b.position));
     };
     load();
-  }, [open]);
+  }, [open, onOrderChange]);
+
+  const persistOrder = async (list: Stage[]) => {
+    const ordered = list.map((s, i) => ({ ...s, position: i + 1 }));
+    setStages(ordered);
+    onOrderChange?.(ordered);
+    console.log('persistOrder start ->', ordered.map(({ id, position }) => ({ id, position })));
+    try {
+      // First move everything to a unique negative position to avoid conflicts
+      for (const { id, position } of ordered) {
+        const tempPos = -(position + 1000);
+        const { error } = await supabase
+          .from('job_stages')
+          .update({ position: tempPos })
+          .eq('id', id);
+        console.log('temp update', { id, tempPos, error });
+      }
+
+      // Then apply the final sequential positions
+      for (const { id, position } of ordered) {
+        const { error } = await supabase
+          .from('job_stages')
+          .update({ position })
+          .eq('id', id);
+        console.log('final update', { id, position, error });
+      }
+    } catch (err) {
+      console.error('persistOrder failed', err);
+    }
+  };
 
   const add = async () => {
+    const nextPos = stages.reduce((max, s) => Math.max(max, s.position), 0) + 1;
     const { data, error } = await supabase
       .from('job_stages')
       .insert({
         company_id: companyId,
         job_id: jobId ?? null,
         name,
-        position: stages.length + 1,
+        position: nextPos,
         sla_days: sla ? Number(sla) : null,
       })
       .select('id,name,position,sla_days')
       .single();
     if (!error && data) {
-      setStages([...stages, data]);
+      await persistOrder([...stages, data]);
       setName('');
       setSla('');
     }
@@ -68,13 +102,32 @@ export default function StageSidebar({ open, onClose, jobId }: Props) {
   const save = async (stage: Stage) => {
     await supabase
       .from('job_stages')
-      .update({ name: stage.name, position: stage.position, sla_days: stage.sla_days })
+      .update({ name: stage.name, sla_days: stage.sla_days })
       .eq('id', stage.id);
   };
 
   const remove = async (id: string) => {
     await supabase.from('job_stages').delete().eq('id', id);
-    setStages(stages.filter((s) => s.id !== id));
+    await persistOrder(stages.filter((s) => s.id !== id));
+  };
+
+  const handleDragStart = (index: number) => setDragIndex(index);
+
+  const handleDragOver = (index: number, e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    const updated = [...stages];
+    const [moved] = updated.splice(dragIndex, 1);
+    updated.splice(index, 0, moved);
+    setDragIndex(index);
+    setStages(updated);
+  };
+
+  const handleDragEnd = () => {
+    if (dragIndex === null) return;
+    console.log('handleDragEnd ->', stages.map(({ id, position }) => ({ id, position })));
+    persistOrder(stages);
+    setDragIndex(null);
   };
 
   if (!open) return null;
@@ -106,15 +159,16 @@ export default function StageSidebar({ open, onClose, jobId }: Props) {
             </Button>
           </div>
         </div>
-        {stages.map((st) => (
-          <div key={st.id} className="grid grid-cols-6 gap-2 mb-2 items-center">
-            <Input
-              value={st.position}
-              type="number"
-              onChange={(e) => (st.position = Number(e.target.value))}
-              onBlur={() => save(st)}
-              className="col-span-1"
-            />
+        {stages.map((st, i) => (
+          <div
+            key={st.id}
+            className="grid grid-cols-6 gap-2 mb-2 items-center cursor-move"
+            draggable
+            onDragStart={() => handleDragStart(i)}
+            onDragOver={(e) => handleDragOver(i, e)}
+            onDragEnd={handleDragEnd}
+          >
+            <GripVertical className="col-span-1 h-4 w-4 justify-self-center" />
             <Input
               value={st.name}
               onChange={(e) => (st.name = e.target.value)}
