@@ -3,7 +3,20 @@ import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 interface JobProps {
-  job: { id: string; title: string; company_id: string; form_fields: string[] };
+  job: {
+    id: string;
+    title: string;
+    company_id: string;
+    form_fields: string[];
+    custom_fields: CustomField[];
+  };
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
 }
 
 const fieldMeta: Record<string, { label: string; type: string; options?: { value: string; label: string }[] }> = {
@@ -32,6 +45,7 @@ const fieldMeta: Record<string, { label: string; type: string; options?: { value
 
 export default function Apply({ job }: JobProps) {
   const [form, setForm] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<Record<string, any>>({});
   const [done, setDone] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -39,7 +53,7 @@ export default function Apply({ job }: JobProps) {
     const res = await fetch('/api/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: job.id, data: form }),
+      body: JSON.stringify({ job_id: job.id, data: form, custom }),
     });
     if (res.ok) setDone(true);
   };
@@ -80,6 +94,83 @@ export default function Apply({ job }: JobProps) {
             </div>
           );
         })}
+        {job.custom_fields.map((field) => (
+          <div key={field.id} className="flex flex-col">
+            <label className="mb-1 font-medium">{field.label}</label>
+            {field.type === 'textarea' ? (
+              <textarea
+                className="border p-2 rounded"
+                onChange={(e) => setCustom({ ...custom, [field.id]: e.target.value })}
+              />
+            ) : field.type === 'radio' ? (
+              <div className="space-y-1">
+                {field.options?.map((opt) => (
+                  <label key={opt} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name={field.id}
+                      value={opt}
+                      onChange={(e) => setCustom({ ...custom, [field.id]: e.target.value })}
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            ) : field.type === 'checkbox' ? (
+              <div className="space-y-1">
+                {field.options?.map((opt) => (
+                  <label key={opt} className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      value={opt}
+                      onChange={(e) => {
+                        const arr = custom[field.id] ? [...custom[field.id]] : [];
+                        if (e.target.checked) arr.push(opt);
+                        else arr.splice(arr.indexOf(opt), 1);
+                        setCustom({ ...custom, [field.id]: arr });
+                      }}
+                    />
+                    {opt}
+                  </label>
+                ))}
+              </div>
+            ) : field.type === 'select' ? (
+              <select
+                className="border p-2 rounded"
+                onChange={(e) => setCustom({ ...custom, [field.id]: e.target.value })}
+              >
+                <option value="">Selecione</option>
+                {field.options?.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : field.type === 'multiselect' ? (
+              <select
+                multiple
+                className="border p-2 rounded"
+                onChange={(e) => {
+                  const values = Array.from(e.target.selectedOptions).map(
+                    (o) => o.value
+                  );
+                  setCustom({ ...custom, [field.id]: values });
+                }}
+              >
+                {field.options?.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                className="border p-2 rounded"
+                onChange={(e) => setCustom({ ...custom, [field.id]: e.target.value })}
+              />
+            )}
+          </div>
+        ))}
         <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">
           Enviar
         </button>
@@ -95,11 +186,12 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
   );
   const { data: job } = await supabase
     .from('jobs')
-    .select('id,title,company_id,form_fields')
+    .select('id,title,company_id,form_fields,custom_fields')
     .eq('id', params?.id)
     .maybeSingle();
   if (!job) {
     return { notFound: true };
   }
+  await supabase.rpc('increment_job_link_click', { j: job.id });
   return { props: { job } };
 };
