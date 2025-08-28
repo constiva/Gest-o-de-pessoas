@@ -9,6 +9,7 @@ create type job_status as enum ('open','closed','frozen');
 create type application_status as enum ('applied','screening','interview','offer','admitted','rejected','withdrawn');
 create type candidate_source as enum ('career_site','referral','linkedin','import','event','other');
 create type rejection_reason as enum ('lack_of_skill','cultural_fit','salary','position_filled','candidate_withdrew','other');
+create type talent_status as enum ('active','withdrawn','rejected');
 
 -- Talents
 create table if not exists talents (
@@ -27,6 +28,7 @@ create table if not exists talents (
   seniority text,
   availability text,
   source candidate_source,
+  status talent_status default 'active',
   consent_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
@@ -102,6 +104,19 @@ create table if not exists job_stages (
   unique (job_id,position)
 );
 
+create table if not exists job_metrics (
+  job_id uuid primary key references jobs(id) on delete cascade,
+  link_clicks int default 0
+);
+
+create or replace function increment_job_link_click(j uuid)
+returns void as $$
+  insert into job_metrics(job_id, link_clicks)
+  values (j, 1)
+  on conflict (job_id)
+    do update set link_clicks = job_metrics.link_clicks + 1;
+$$ language sql;
+
 -- Applications
 create table if not exists applications (
   id uuid primary key default uuid_generate_v4(),
@@ -130,6 +145,14 @@ create table if not exists application_stage_history (
   note text,
   due_at timestamptz,
   breached_at timestamptz
+);
+
+create table if not exists application_stage_dates (
+  application_id uuid not null references applications(id) on delete cascade,
+  stage_id uuid not null references job_stages(id) on delete cascade,
+  day_in date not null,
+  day_out date,
+  primary key (application_id, stage_id)
 );
 
 create table if not exists application_events (
@@ -162,6 +185,7 @@ alter table jobs enable row level security;
 alter table job_stages enable row level security;
 alter table applications enable row level security;
 alter table application_stage_history enable row level security;
+alter table application_stage_dates enable row level security;
 alter table application_events enable row level security;
 alter table reports_cache enable row level security;
 
@@ -173,6 +197,7 @@ create policy company_iso on jobs using (company_id = (auth.jwt() ->> 'company_i
 create policy company_iso on job_stages using (company_id = (auth.jwt() ->> 'company_id')::uuid) with check (company_id = (auth.jwt() ->> 'company_id')::uuid);
 create policy company_iso on applications using (company_id = (auth.jwt() ->> 'company_id')::uuid) with check (company_id = (auth.jwt() ->> 'company_id')::uuid);
 create policy company_iso on application_stage_history using (exists (select 1 from applications a where a.id = application_stage_history.application_id and a.company_id = (auth.jwt() ->> 'company_id')::uuid));
+create policy company_iso on application_stage_dates using (exists (select 1 from applications a where a.id = application_stage_dates.application_id and a.company_id = (auth.jwt() ->> 'company_id')::uuid));
 create policy company_iso on application_events using (company_id = (auth.jwt() ->> 'company_id')::uuid) with check (company_id = (auth.jwt() ->> 'company_id')::uuid);
 create policy company_iso on reports_cache using (company_id = (auth.jwt() ->> 'company_id')::uuid) with check (company_id = (auth.jwt() ->> 'company_id')::uuid);
 
