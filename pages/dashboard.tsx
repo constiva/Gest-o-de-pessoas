@@ -50,8 +50,8 @@ export default function Dashboard() {
         .from('companies')
         .select('maxemployees')
         .eq('id', companyId)
-        .single();
-      if (company?.maxemployees === 0) {
+        .maybeSingle();
+      if (company && company.maxemployees === 0) {
         router.replace(`/pending?companyId=${companyId}`);
         return;
       }
