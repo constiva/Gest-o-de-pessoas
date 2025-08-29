@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import Layout from '../../../components/Layout';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui/tabs';
 import JobTalentBoard from '../../../components/recruitment/JobTalentBoard';
+import JobMetrics from '../../../components/recruitment/JobMetrics';
 import { supabase } from '../../../lib/supabaseClient';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
@@ -31,6 +32,15 @@ interface Job {
   workload: string | null;
   seniority: string | null;
   form_fields: string[] | null;
+  custom_fields: CustomField[] | null;
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
+  enabled?: boolean;
 }
 
 export default function JobDetails() {
@@ -38,6 +48,11 @@ export default function JobDetails() {
   const { id } = router.query;
   const [job, setJob] = useState<Job | null>(null);
   const [fields, setFields] = useState<string[]>([]);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [cfType, setCfType] = useState('text');
+  const [cfLabel, setCfLabel] = useState('');
+  const [cfOptions, setCfOptions] = useState<string[]>(['']);
   const [managers, setManagers] = useState<{ user_id: string; name: string }[]>([]);
   const [candidateCount, setCandidateCount] = useState(0);
   const [sourceDist, setSourceDist] = useState<Record<string, number>>({});
@@ -54,12 +69,30 @@ export default function JobDetails() {
   const [newContract, setNewContract] = useState('');
   const [showMsg, setShowMsg] = useState(false);
 
+  const Toggle = ({
+    on,
+    onChange,
+  }: {
+    on: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors ${on ? 'bg-purple-600' : 'bg-gray-300'}`}
+    >
+      <span
+        className={`bg-white w-4 h-4 rounded-full transform transition ${on ? 'translate-x-5' : 'translate-x-0'}`}
+      />
+    </button>
+  );
+
   useEffect(() => {
     if (!id || Array.isArray(id)) return;
     supabase
       .from('jobs')
       .select(
-        'id,company_id,title,department,manager_id,status,opened_at,sla,work_location,summary,responsibilities,requirements,desirables,salary_range,benefits,contract_type,workload,seniority,form_fields'
+        'id,company_id,title,department,manager_id,status,opened_at,sla,work_location,summary,responsibilities,requirements,desirables,salary_range,benefits,contract_type,workload,seniority,form_fields,custom_fields'
       )
       .eq('id', id)
       .maybeSingle()
@@ -87,6 +120,12 @@ export default function JobDetails() {
           }
           setJob(jobData);
           setFields((data.form_fields as string[]) || ['name', 'email']);
+          setCustomFields(
+            ((data.custom_fields as CustomField[]) || []).map((f) => ({
+              enabled: f.enabled ?? true,
+              ...f,
+            }))
+          );
           const { data: mgrs } = await supabase
             .from('companies_users')
             .select('user_id,name')
@@ -126,6 +165,18 @@ export default function JobDetails() {
     const { error } = await supabase
       .from('jobs')
       .update({ form_fields: fields })
+      .eq('id', id);
+    if (error) {
+      console.error(error);
+      alert(error.message);
+    }
+  };
+
+  const saveCustomFields = async () => {
+    if (!id || Array.isArray(id)) return;
+    const { error } = await supabase
+      .from('jobs')
+      .update({ custom_fields: customFields })
       .eq('id', id);
     if (error) {
       console.error(error);
@@ -573,34 +624,76 @@ export default function JobDetails() {
             )}
           </TabsContent>
           <TabsContent value="metrics">
-            <p>Métricas em construção.</p>
+            {id && !Array.isArray(id) && <JobMetrics jobId={id} />}
           </TabsContent>
           <TabsContent value="ads">
             <div className="space-y-4">
-              <div>
-                <p className="font-medium mb-2">Campos do formulário público</p>
-                {talentFields.map((f) => (
-                  <label key={f.id} className="flex items-center gap-2 mb-1">
-                    <input
-                      type="checkbox"
-                      checked={fields.includes(f.id)}
-                      onChange={(e) => {
-                        setFields(
-                          e.target.checked
-                            ? [...fields, f.id]
-                            : fields.filter((x) => x !== f.id)
-                        );
-                      }}
-                    />
-                    {f.label}
-                  </label>
-                ))}
-                <button
-                  onClick={saveFields}
-                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
-                >
-                  Salvar
-                </button>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div>
+                  <p className="font-medium mb-2">Campos do formulário público</p>
+                  {talentFields.map((f) => (
+                    <div key={f.id} className="flex items-center gap-2 mb-1">
+                      <Toggle
+                        on={fields.includes(f.id)}
+                        onChange={(v) =>
+                          setFields(
+                            v
+                              ? [...fields, f.id]
+                              : fields.filter((x) => x !== f.id)
+                          )
+                        }
+                      />
+                      <span>{f.label}</span>
+                    </div>
+                  ))}
+                  <button
+                    onClick={saveFields}
+                    className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
+                  >
+                    Salvar
+                  </button>
+                </div>
+                <div>
+                  <p className="font-medium mb-2">Campos personalizados</p>
+                  {customFields.map((f) => (
+                    <div key={f.id} className="flex items-center gap-2 mb-1">
+                      <Toggle
+                        on={f.enabled !== false}
+                        onChange={(v) =>
+                          setCustomFields(
+                            customFields.map((cf) =>
+                              cf.id === f.id ? { ...cf, enabled: v } : cf
+                            )
+                          )
+                        }
+                      />
+                      <span className="flex-1">
+                        {f.label}
+                        <span className="text-sm text-gray-500"> ({f.type})</span>
+                      </span>
+                      <button
+                        className="ml-auto text-red-600 text-sm"
+                        onClick={() =>
+                          setCustomFields(customFields.filter((c) => c.id !== f.id))
+                        }
+                      >
+                        Remover
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => setShowFieldModal(true)}
+                    className="mt-2 px-3 py-1 border rounded flex items-center gap-1"
+                  >
+                    <Plus className="h-4 w-4" /> Adicionar campo
+                  </button>
+                  <button
+                    onClick={saveCustomFields}
+                    className="mt-2 ml-2 px-4 py-2 bg-blue-600 text-white rounded"
+                  >
+                    Salvar
+                  </button>
+                </div>
               </div>
               {publicLink && (
                 <div>
@@ -619,6 +712,113 @@ export default function JobDetails() {
             <p>Roteiro em construção.</p>
           </TabsContent>
         </Tabs>
+        {showFieldModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold">Novo campo</h2>
+                <button
+                  onClick={() => setShowFieldModal(false)}
+                  className="p-1 rounded hover:bg-gray-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mb-2">
+                <label className="block text-sm mb-1">Tipo</label>
+                <select
+                  className="w-full border p-2 rounded"
+                  value={cfType}
+                  onChange={(e) => setCfType(e.target.value)}
+                >
+                  <option value="text">Input</option>
+                  <option value="textarea">Textarea</option>
+                  <option value="radio">Radio</option>
+                  <option value="checkbox">Checkbox</option>
+                  <option value="select">Select</option>
+                  <option value="multiselect">Multi-select</option>
+                </select>
+              </div>
+              <div className="mb-2">
+                <label className="block text-sm mb-1">Nome</label>
+                <input
+                  className="w-full border p-2 rounded"
+                  value={cfLabel}
+                  onChange={(e) => setCfLabel(e.target.value)}
+                />
+              </div>
+              {(cfType === 'radio' ||
+                cfType === 'checkbox' ||
+                cfType === 'select' ||
+                cfType === 'multiselect') && (
+                <div className="mb-2">
+                  <label className="block text-sm mb-1">Opções</label>
+                  {cfOptions.map((opt, idx) => (
+                    <div key={idx} className="flex items-center gap-2 mb-1">
+                      <input
+                        className="border p-1 rounded flex-1"
+                        value={opt}
+                        onChange={(e) => {
+                          const newOpts = [...cfOptions];
+                          newOpts[idx] = e.target.value;
+                          setCfOptions(newOpts);
+                        }}
+                      />
+                      <button
+                        className="text-red-600 text-sm"
+                        onClick={() =>
+                          setCfOptions(cfOptions.filter((_, i) => i !== idx))
+                        }
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="text-blue-600 text-sm mt-1"
+                    onClick={() => setCfOptions([...cfOptions, ''])}
+                  >
+                    Adicionar opção
+                  </button>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setShowFieldModal(false)}
+                  className="px-4 py-2 border rounded"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const label = cfLabel.trim();
+                    if (!label) return;
+                    const field: CustomField = {
+                      id: crypto.randomUUID(),
+                      label,
+                      type: cfType,
+                      enabled: true,
+                      ...(cfType === 'radio' ||
+                      cfType === 'checkbox' ||
+                      cfType === 'select' ||
+                      cfType === 'multiselect'
+                        ? { options: cfOptions.filter((o) => o.trim()) }
+                        : {}),
+                    };
+                    setCustomFields([...customFields, field]);
+                    setCfLabel('');
+                    setCfOptions(['']);
+                    setCfType('text');
+                    setShowFieldModal(false);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </Layout>
     </>
   );
