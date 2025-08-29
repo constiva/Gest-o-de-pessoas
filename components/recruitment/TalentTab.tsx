@@ -1,35 +1,30 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '../../lib/supabaseClient';
-import { Button } from '../ui/button';
-import StageSidebar from '../StageSidebar';
+import { Card } from '../ui/card';
+import { Contact } from 'lucide-react';
+import TalentModal from './TalentModal';
 
-interface Stage {
+interface Job {
   id: string;
-  name: string;
-  position: number;
+  title: string;
 }
 
-interface Talent {
+interface TalentItem {
+  appId: string;
   id: string;
   name: string;
-  stage_id: string | null;
+  jobId: string;
+  jobTitle: string;
 }
-
-const DEFAULT_STAGES = [
-  { name: 'Listados', position: 1, sla_days: 2 },
-  { name: 'Triagem Curricular', position: 2, sla_days: 3 },
-  { name: 'Triagem Técnica', position: 3, sla_days: 5 },
-  { name: 'Entrevista Final', position: 4, sla_days: 7 },
-  { name: 'Oferta', position: 5, sla_days: 2 },
-  { name: 'Admitido', position: 6, sla_days: null },
-];
 
 export default function TalentTab() {
-  const [stages, setStages] = useState<Stage[]>([]);
-  const [talents, setTalents] = useState<Talent[]>([]);
-  const [dragId, setDragId] = useState<string | null>(null);
-  const [stageOpen, setStageOpen] = useState(false);
   const [companyId, setCompanyId] = useState('');
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [talents, setTalents] = useState<TalentItem[]>([]);
+  const [jobFilter, setJobFilter] = useState('all');
+  const [open, setOpen] = useState<{ talentId: string; appId: string } | null>(
+    null
+  );
 
   const load = async () => {
     const {
@@ -41,83 +36,79 @@ export default function TalentTab() {
       (session.user as any)?.user_metadata?.company_id || '';
     if (!compId) return;
     setCompanyId(compId);
-    let { data: stagesData } = await supabase
-      .from('job_stages')
-      .select('id,name,position')
-      .eq('company_id', compId)
-      .is('job_id', null)
-      .order('position');
-    if (!stagesData || stagesData.length === 0) {
-      const { data } = await supabase
-        .from('job_stages')
-        .insert(
-          DEFAULT_STAGES.map((s) => ({ ...s, company_id: compId }))
-        )
-        .select('id,name,position');
-      stagesData = data || [];
-    }
-    setStages(stagesData || []);
-    const { data: talentsData } = await supabase
-      .from('talents')
-      .select('id,name,stage_id')
+
+    const { data: jobsData } = await supabase
+      .from('jobs')
+      .select('id,title')
       .eq('company_id', compId);
-    setTalents(talentsData || []);
+    setJobs(jobsData || []);
+
+    const { data: appData } = await supabase
+      .from('applications')
+      .select('id, job_id, jobs(id,title), talent:talents(id,name)')
+      .eq('company_id', compId);
+    const mapped =
+      appData?.map((a: any) => ({
+        appId: a.id,
+        id: a.talent.id,
+        name: a.talent.name,
+        jobId: a.job_id,
+        jobTitle: a.jobs?.title || '',
+      })) || [];
+    setTalents(mapped);
   };
 
   useEffect(() => {
     load();
   }, []);
 
-  const onDrop = async (stageId: string) => {
-    if (!dragId) return;
-    await supabase.from('talents').update({ stage_id: stageId }).eq('id', dragId);
-    setTalents((prev) => prev.map((t) => (t.id === dragId ? { ...t, stage_id: stageId } : t)));
-    setDragId(null);
-  };
-
-  const grouped = stages.map((s) => ({
-    stage: s,
-    items: talents.filter((t) => t.stage_id === s.id),
-  }));
+  const filtered = talents.filter(
+    (t) => jobFilter === 'all' || t.jobId === jobFilter
+  );
 
   return (
     <div>
-      <div className="mb-4 flex justify-between">
+      <div className="mb-4 flex items-center justify-between">
         <h2 className="text-xl font-semibold">Banco de Talentos</h2>
-        <Button variant="outline" onClick={() => setStageOpen(true)}>
-          Etapas
-        </Button>
+        <select
+          className="border rounded px-2 py-1"
+          value={jobFilter}
+          onChange={(e) => setJobFilter(e.target.value)}
+        >
+          <option value="all">Todas as vagas</option>
+          {jobs.map((j) => (
+            <option key={j.id} value={j.id}>
+              {j.title}
+            </option>
+          ))}
+        </select>
       </div>
-      <div className="flex gap-4 overflow-x-auto">
-        {grouped.map(({ stage, items }) => (
-          <div
-            key={stage.id}
-            className="w-64 bg-gray-100 rounded p-2"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => onDrop(stage.id)}
+      <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4">
+        {filtered.map((t) => (
+          <Card
+            key={t.appId}
+            className="flex items-center gap-3 cursor-pointer p-4"
+            onClick={() => setOpen({ talentId: t.id, appId: t.appId })}
           >
-            <h3 className="font-medium mb-2">{stage.name}</h3>
-            {items.map((talent) => (
-              <div
-                key={talent.id}
-                className="bg-white rounded shadow p-2 mb-2 cursor-move"
-                draggable
-                onDragStart={() => setDragId(talent.id)}
-              >
-                {talent.name}
-              </div>
-            ))}
-          </div>
+            <Contact className="text-purple-500" />
+            <div>
+              <div className="font-medium">{t.name}</div>
+              <div className="text-sm text-gray-500">{t.jobTitle}</div>
+            </div>
+          </Card>
         ))}
       </div>
-      <StageSidebar
-        open={stageOpen}
-        onClose={() => {
-          setStageOpen(false);
-          load();
-        }}
-      />
+      {open && (
+        <TalentModal
+          talentId={open.talentId}
+          applicationId={open.appId}
+          companyId={companyId}
+          onClose={() => {
+            setOpen(null);
+            load();
+          }}
+        />
+      )}
     </div>
   );
 }
-
