@@ -33,6 +33,8 @@ Esta especificação descreve a interface do módulo de Recrutamento & Seleção
 
 ## 2. Banco de Talentos (`/talents`)
 ### Lista
+- Cards exibem ícone de contato, vaga associada e **Data da inscrição**.
+- Abas de status: **Todas**, **Ativos**, **Desistentes** e **Reprovados** filtram os talentos.
 - Topo com: Novo Talento, Importar CSV/Excel, Filtrar, Salvar visão, Colunas, Exportar.
 - Busca global por nome, email, telefone.
 - Colunas: Nome, Email, Telefone, Localização, Senioridade, Skills, Tags, Origem, Último movimento, Status geral, Ações.
