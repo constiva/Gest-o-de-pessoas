@@ -1,0 +1,10 @@
+This project counts link clicks using Supabase.
+
+1. **Database schema**
+   - The `job_metrics` table stores a row per job with a `link_clicks` column. A SQL function `increment_job_link_click` inserts or updates this row, adding one to `link_clicks` on each call.
+2. **When a candidate visits the job page**
+   - The public job application page (`pages/apply/[id].tsx`) calls `increment_job_link_click` on every request to record the visit.
+3. **Displaying the total**
+   - The metrics tab fetches the `link_clicks` value from `job_metrics` and shows it as the first bar of the funnel chart (`components/recruitment/JobMetrics.tsx`).
+
+This flow ensures that every time someone clicks the job link, the backend counter increments and the metrics dashboard reflects the updated total.
