@@ -5,11 +5,12 @@ import { useEffect, useState } from 'react';
 import Layout from '../../../components/Layout';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '../../../components/ui/tabs';
 import JobTalentBoard from '../../../components/recruitment/JobTalentBoard';
+import JobMetrics from '../../../components/recruitment/JobMetrics';
 import { supabase } from '../../../lib/supabaseClient';
 import { Input } from '../../../components/ui/input';
 import { Button } from '../../../components/ui/button';
 import { getSourceLabel } from '../../../lib/utils';
-import { Plus, X } from 'lucide-react';
+import { Plus, X, GripVertical } from 'lucide-react';
 
 interface Job {
   id: string;
@@ -31,13 +32,37 @@ interface Job {
   workload: string | null;
   seniority: string | null;
   form_fields: string[] | null;
+  custom_fields: CustomField[] | null;
+  form_field_order: string[] | null;
+  form_field_wide: string[] | null;
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
+  enabled?: boolean;
 }
 
 export default function JobDetails() {
   const router = useRouter();
   const { id } = router.query;
   const [job, setJob] = useState<Job | null>(null);
-  const [fields, setFields] = useState<string[]>([]);
+  interface FormFieldItem {
+    id: string;
+    label: string;
+    type?: string;
+    options?: string[];
+    enabled: boolean;
+    isCustom: boolean;
+    span: number;
+  }
+  const [fieldList, setFieldList] = useState<FormFieldItem[]>([]);
+  const [showFieldModal, setShowFieldModal] = useState(false);
+  const [cfType, setCfType] = useState('text');
+  const [cfLabel, setCfLabel] = useState('');
+  const [cfOptions, setCfOptions] = useState<string[]>(['']);
   const [managers, setManagers] = useState<{ user_id: string; name: string }[]>([]);
   const [candidateCount, setCandidateCount] = useState(0);
   const [sourceDist, setSourceDist] = useState<Record<string, number>>({});
@@ -53,13 +78,33 @@ export default function JobDetails() {
   ]);
   const [newContract, setNewContract] = useState('');
   const [showMsg, setShowMsg] = useState(false);
+  const [fieldsMsg, setFieldsMsg] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+
+  const Toggle = ({
+    on,
+    onChange,
+  }: {
+    on: boolean;
+    onChange: (v: boolean) => void;
+  }) => (
+    <button
+      type="button"
+      onClick={() => onChange(!on)}
+      className={`w-10 h-5 flex items-center rounded-full p-1 transition-colors ${on ? 'bg-purple-600' : 'bg-gray-300'}`}
+    >
+      <span
+        className={`bg-white w-4 h-4 rounded-full transform transition ${on ? 'translate-x-5' : 'translate-x-0'}`}
+      />
+    </button>
+  );
 
   useEffect(() => {
     if (!id || Array.isArray(id)) return;
     supabase
       .from('jobs')
       .select(
-        'id,company_id,title,department,manager_id,status,opened_at,sla,work_location,summary,responsibilities,requirements,desirables,salary_range,benefits,contract_type,workload,seniority,form_fields'
+        'id,company_id,title,department,manager_id,status,opened_at,sla,work_location,summary,responsibilities,requirements,desirables,salary_range,benefits,contract_type,workload,seniority,form_fields,custom_fields,form_field_order,form_field_wide'
       )
       .eq('id', id)
       .maybeSingle()
@@ -86,7 +131,45 @@ export default function JobDetails() {
             jobData.workload = m ? m[0] : jobData.workload;
           }
           setJob(jobData);
-          setFields((data.form_fields as string[]) || ['name', 'email']);
+          const builtins = (data.form_fields as string[]) || ['name', 'email'];
+          const customDefs = ((data.custom_fields as CustomField[]) || []).map(
+            (f) => ({ ...f, enabled: f.enabled ?? true })
+          );
+          const order = (data.form_field_order as string[]) || [];
+          const wideSet = new Set((data.form_field_wide as string[]) || []);
+          const builtinItems = talentFields.map((tf) => ({
+            id: tf.id,
+            label: tf.label,
+            isCustom: false,
+            enabled: builtins.includes(tf.id),
+            span: wideSet.has(tf.id) ? 2 : 1,
+          }));
+          const customItems = customDefs.map((cf) => ({
+            id: cf.id,
+            label: cf.label,
+            type: cf.type,
+            options: cf.options,
+            enabled: cf.enabled !== false,
+            isCustom: true,
+            span:
+              wideSet.has(cf.id) ||
+              ['textarea', 'radio', 'checkbox', 'multiselect'].includes(cf.type)
+                ? 2
+                : 1,
+          }));
+          const map = new Map(
+            [...builtinItems, ...customItems].map((f) => [f.id, f])
+          );
+          const ordered: FormFieldItem[] = [];
+          order.forEach((id: string) => {
+            const item = map.get(id);
+            if (item) {
+              ordered.push(item);
+              map.delete(id);
+            }
+          });
+          map.forEach((item) => ordered.push(item));
+          setFieldList(ordered);
           const { data: mgrs } = await supabase
             .from('companies_users')
             .select('user_id,name')
@@ -121,17 +204,51 @@ export default function JobDetails() {
     { id: 'availability', label: 'Disponibilidade' },
   ];
 
-  const saveFields = async () => {
+  const saveFormConfig = async () => {
     if (!id || Array.isArray(id)) return;
+    const builtins = fieldList
+      .filter((f) => !f.isCustom && f.enabled)
+      .map((f) => f.id);
+    const custom = fieldList
+      .filter((f) => f.isCustom)
+      .map(({ id, label, type, options, enabled }) => ({
+        id,
+        label,
+        type: type!,
+        options,
+        enabled,
+      }));
+    const order = fieldList.map((f) => f.id);
+    const wide = fieldList.filter((f) => f.span === 2).map((f) => f.id);
     const { error } = await supabase
       .from('jobs')
-      .update({ form_fields: fields })
+      .update({
+        form_fields: builtins,
+        custom_fields: custom,
+        form_field_order: order,
+        form_field_wide: wide,
+      })
       .eq('id', id);
     if (error) {
       console.error(error);
       alert(error.message);
+    } else {
+      setFieldsMsg(true);
+      setTimeout(() => setFieldsMsg(false), 3000);
     }
   };
+
+  const handleDragStartField = (index: number) => setDragIndex(index);
+  const handleDragOverField = (index: number, e: React.DragEvent) => {
+    e.preventDefault();
+    if (dragIndex === null || dragIndex === index) return;
+    const updated = [...fieldList];
+    const [moved] = updated.splice(dragIndex, 1);
+    updated.splice(index, 0, moved);
+    setFieldList(updated);
+    setDragIndex(index);
+  };
+  const handleDragEndField = () => setDragIndex(null);
 
   const publicLink =
     typeof window !== 'undefined' && id
@@ -573,34 +690,100 @@ export default function JobDetails() {
             )}
           </TabsContent>
           <TabsContent value="metrics">
-            <p>Métricas em construção.</p>
+            {id && !Array.isArray(id) && <JobMetrics jobId={id} />}
           </TabsContent>
           <TabsContent value="ads">
             <div className="space-y-4">
               <div>
                 <p className="font-medium mb-2">Campos do formulário público</p>
-                {talentFields.map((f) => (
-                  <label key={f.id} className="flex items-center gap-2 mb-1">
-                    <input
-                      type="checkbox"
-                      checked={fields.includes(f.id)}
-                      onChange={(e) => {
-                        setFields(
-                          e.target.checked
-                            ? [...fields, f.id]
-                            : fields.filter((x) => x !== f.id)
-                        );
-                      }}
-                    />
-                    {f.label}
-                  </label>
-                ))}
+                <div className="grid grid-cols-2 gap-2">
+                  {fieldList.map((f, idx) => (
+                    <div
+                      key={f.id}
+                      className={`border rounded p-2 flex items-center gap-2 bg-white ${f.span === 2 ? 'col-span-2' : ''}`}
+                      draggable
+                      onDragStart={() => handleDragStartField(idx)}
+                      onDragOver={(e) => handleDragOverField(idx, e)}
+                      onDragEnd={handleDragEndField}
+                    >
+                      <GripVertical className="h-4 w-4 text-gray-400" />
+                      <span className="flex-1">
+                        {f.label}
+                        {f.isCustom && (
+                          <span className="text-sm text-gray-500"> ({f.type})</span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        className="text-gray-400 hover:text-gray-600"
+                        onClick={() =>
+                          setFieldList(
+                            fieldList.map((item, i) =>
+                              i === idx
+                                ? { ...item, span: item.span === 2 ? 1 : 2 }
+                                : item
+                            )
+                          )
+                        }
+                        title={f.span === 2 ? 'Metade da largura' : 'Largura completa'}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M4 12h16M8 8h-4v8h4V8zm12 0h-4v8h4V8z"
+                          />
+                        </svg>
+                      </button>
+                      <Toggle
+                        on={f.enabled}
+                        onChange={(v) =>
+                          setFieldList(
+                            fieldList.map((item, i) =>
+                              i === idx ? { ...item, enabled: v } : item
+                            )
+                          )
+                        }
+                      />
+                      {f.isCustom && (
+                        <button
+                          className="text-gray-400 hover:text-red-600"
+                          onClick={() =>
+                            setFieldList(
+                              fieldList.filter((item) => item.id !== f.id)
+                            )
+                          }
+                        >
+                          <X className="h-4 w-4" />
+                        </button>
+                      )}
+                    </div>
+                  ))}
+                </div>
                 <button
-                  onClick={saveFields}
-                  className="mt-2 px-4 py-2 bg-blue-600 text-white rounded"
+                  onClick={() => setShowFieldModal(true)}
+                  className="mt-2 px-3 py-1 border rounded flex items-center gap-1"
+                >
+                  <Plus className="h-4 w-4" /> Adicionar campo
+                </button>
+                <button
+                  onClick={saveFormConfig}
+                  className="mt-2 ml-2 px-4 py-2 bg-blue-600 text-white rounded"
                 >
                   Salvar
                 </button>
+                {fieldsMsg && (
+                  <div className="fixed top-4 right-4 bg-green-100 border border-green-400 text-green-800 px-4 py-2 rounded">
+                    alterações salvas com sucesso!!
+                  </div>
+                )}
               </div>
               {publicLink && (
                 <div>
@@ -619,6 +802,126 @@ export default function JobDetails() {
             <p>Roteiro em construção.</p>
           </TabsContent>
         </Tabs>
+        {showFieldModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <div className="bg-white rounded p-4 w-full max-w-md max-h-[80vh] overflow-y-auto">
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="text-lg font-bold">Novo campo</h2>
+                <button
+                  onClick={() => setShowFieldModal(false)}
+                  className="p-1 rounded hover:bg-gray-100"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mb-2">
+                <label className="block text-sm mb-1">Tipo</label>
+                <select
+                  className="w-full border p-2 rounded"
+                  value={cfType}
+                  onChange={(e) => setCfType(e.target.value)}
+                >
+                  <option value="text">Input</option>
+                  <option value="textarea">Textarea</option>
+                  <option value="radio">Radio</option>
+                  <option value="checkbox">Checkbox</option>
+                  <option value="select">Select</option>
+                  <option value="multiselect">Multi-select</option>
+                </select>
+              </div>
+              <div className="mb-2">
+                <label className="block text-sm mb-1">Nome</label>
+                <input
+                  className="w-full border p-2 rounded"
+                  value={cfLabel}
+                  onChange={(e) => setCfLabel(e.target.value)}
+                />
+              </div>
+              {(cfType === 'radio' ||
+                cfType === 'checkbox' ||
+                cfType === 'select' ||
+                cfType === 'multiselect') && (
+                <div className="mb-2">
+                  <label className="block text-sm mb-1">Opções</label>
+                  {cfOptions.map((opt, idx) => (
+                    <div key={idx} className="flex items-center gap-2 mb-1">
+                      <input
+                        className="border p-1 rounded flex-1"
+                        value={opt}
+                        onChange={(e) => {
+                          const newOpts = [...cfOptions];
+                          newOpts[idx] = e.target.value;
+                          setCfOptions(newOpts);
+                        }}
+                      />
+                      <button
+                        className="text-red-600 text-sm"
+                        onClick={() =>
+                          setCfOptions(cfOptions.filter((_, i) => i !== idx))
+                        }
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    className="text-blue-600 text-sm mt-1"
+                    onClick={() => setCfOptions([...cfOptions, ''])}
+                  >
+                    Adicionar opção
+                  </button>
+                </div>
+              )}
+              <div className="flex justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setShowFieldModal(false)}
+                  className="px-4 py-2 border rounded"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={() => {
+                    const label = cfLabel.trim();
+                    if (!label) return;
+                    const field: CustomField = {
+                      id: crypto.randomUUID(),
+                      label,
+                      type: cfType,
+                      enabled: true,
+                      ...(cfType === 'radio' ||
+                      cfType === 'checkbox' ||
+                      cfType === 'select' ||
+                      cfType === 'multiselect'
+                        ? { options: cfOptions.filter((o) => o.trim()) }
+                        : {}),
+                    };
+                    setFieldList([
+                      ...fieldList,
+                      {
+                        ...field,
+                        isCustom: true,
+                        enabled: field.enabled ?? true,
+                        span:
+                          ['textarea', 'radio', 'checkbox', 'multiselect'].includes(
+                            cfType
+                          )
+                            ? 2
+                            : 1,
+                      },
+                    ]);
+                    setCfLabel('');
+                    setCfOptions(['']);
+                    setCfType('text');
+                    setShowFieldModal(false);
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                >
+                  Salvar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </Layout>
     </>
   );
