@@ -15,8 +15,18 @@ Principais objetivos:
 - **skills**, **talent_skill_map**: habilidades técnicas ou comportamentais.
 - **jobs**: vagas com status e etapas personalizadas.
 - **job_stages**: etapas padrão por empresa ou sobrescritas por vaga.
+- **job_metrics**: estatísticas agregadas por vaga (ex.: cliques no link).
+- **job_scripts**: roteiros de entrevista com texto, softskills e critérios de fit cultural por vaga.
+- **job_script_configs**: roteiros salvos por empresa, reutilizáveis entre várias vagas.
+- **job_form_configs**: layouts do formulário público salvos por empresa, reutilizáveis em várias vagas.
+- **jobs.custom_fields**: campos adicionais definidos pela empresa para o formulário público (cada item possui `id`, `label`, `type`, `options?` e `enabled` para ativar ou ocultar o campo).
+- **jobs.form_field_order**: sequência de IDs (padrão e personalizados) que define a ordem dos campos exibidos no formulário público.
+- **jobs.form_field_wide**: lista de IDs dos campos que devem ocupar toda a largura do formulário público.
+- **jobs.form_config_id**: referência ao layout de formulário salvo aplicado à vaga.
 - **applications**: vínculo talento↔vaga com estágio atual.
+- **applications.custom_answers**: respostas dos candidatos aos campos personalizados.
 - **application_stage_history**: histórico de mudanças de etapa e SLAs.
+- **application_stage_dates**: registro das datas de entrada e saída em cada etapa.
 - **application_events**: auditoria de ações (quem, quando, payload).
 - **reports_cache**: materialização periódica de métricas.
 
@@ -26,7 +36,13 @@ Principais objetivos:
 - `applications.job_id -> jobs.id`
 - `applications.talent_id -> talents.id`
 - `job_stages.job_id -> jobs.id` (ou nulo para padrão da empresa)
+- `job_metrics.job_id -> jobs.id`
+- `job_scripts.job_id -> jobs.id`
+- `job_script_configs.company_id -> companies.id`
+- `job_scripts.template_id -> job_script_configs.id`
+- `job_form_configs.company_id -> companies.id`
 - `application_stage_history.application_id -> applications.id`
+- `application_stage_dates.application_id -> applications.id`
 - `application_events.application_id -> applications.id`
 
 ## 3. Script SQL (Supabase)
@@ -37,6 +53,7 @@ create type job_status as enum ('open','closed','frozen');
 create type application_stage as enum ('applied','screening','interview','offer','admitted','rejected','withdrawn');
 create type candidate_source as enum ('career_site','referral','linkedin','import','event','other');
 create type rejection_reason as enum ('lack_of_skill','cultural_fit','salary','position_filled','candidate_withdrew','other');
+create type talent_status as enum ('active','withdrawn','rejected');
 
 -- Talents
 create table talents (
@@ -54,6 +71,7 @@ create table talents (
   seniority text,
   availability text,
   source candidate_source,
+  status talent_status default 'active',
   consent_at timestamptz,
   created_at timestamptz default now(),
   updated_at timestamptz default now(),
