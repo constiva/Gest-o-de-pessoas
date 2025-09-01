@@ -10,6 +10,7 @@ interface Stage {
   id: string;
   name: string;
   position: number;
+  sla_days?: number | null;
 }
 
 interface Tag {
@@ -25,6 +26,7 @@ interface ApplicationItem {
   created_at: string;
   source: string | null;
   tags: Tag[];
+  status: string;
 }
 
 const DEFAULT_STAGES = [
@@ -50,6 +52,7 @@ export default function JobTalentBoard({ jobId }: Props) {
     talentId: string;
     appId: string;
   } | null>(null);
+  const [statusFilter, setStatusFilter] = useState('active');
 
   const load = async () => {
     const {
@@ -76,11 +79,12 @@ export default function JobTalentBoard({ jobId }: Props) {
         .select('id,name,position');
       stagesData = data || [];
     }
-    setStages(stagesData || []);
+    stagesData = (stagesData || []).sort((a, b) => a.position - b.position);
+    setStages(stagesData);
     const { data: appData } = await supabase
       .from('applications')
       .select(
-        'id,stage_id,talent:talents(id,name,created_at,source,talent_tag_map(tag:talent_tags(name,color)))'
+        'id,stage_id,talent:talents(id,name,created_at,source,status,talent_tag_map(tag:talent_tags(name,color)))'
       )
       .eq('company_id', compId)
       .eq('job_id', jobId);
@@ -97,6 +101,7 @@ export default function JobTalentBoard({ jobId }: Props) {
             name: m.tag.name,
             color: m.tag.color || '#a855f7',
           })) || [],
+        status: a.talent.status,
       })) || [];
     setItems(mapped);
   };
@@ -107,15 +112,17 @@ export default function JobTalentBoard({ jobId }: Props) {
 
   const onDrop = async (stageId: string) => {
     if (!dragId) return;
+    const current = items.find((t) => t.id === dragId);
     console.log('[JobTalentBoard] updating application', {
       id: dragId,
-      stage: stageId,
+      from: current?.stage_id,
+      to: stageId,
     });
     const { data, error } = await supabase
       .from('applications')
       .update({ stage_id: stageId })
       .eq('id', dragId)
-      .select();
+      .select('id');
     if (error) {
       console.error('[JobTalentBoard] update failed', error);
       alert(error.message);
@@ -124,6 +131,27 @@ export default function JobTalentBoard({ jobId }: Props) {
       setItems((prev) =>
         prev.map((t) => (t.id === dragId ? { ...t, stage_id: stageId } : t)),
       );
+      const now = new Date().toISOString();
+      if (current?.stage_id) {
+        await supabase
+          .from('application_stage_dates')
+          .update({ day_out: now })
+          .eq('application_id', dragId)
+          .eq('stage_id', current.stage_id)
+          .is('day_out', null);
+      }
+      const { data: existingStage } = await supabase
+        .from('application_stage_dates')
+        .select('day_in')
+        .eq('application_id', dragId)
+        .eq('stage_id', stageId)
+        .maybeSingle();
+      await supabase.from('application_stage_dates').upsert({
+        application_id: dragId,
+        stage_id: stageId,
+        day_in: existingStage?.day_in || now,
+        day_out: null,
+      });
     }
     setDragId(null);
   };
@@ -136,10 +164,14 @@ export default function JobTalentBoard({ jobId }: Props) {
     return `${hours}h`;
   };
 
-  const grouped = stages.map((s) => ({
-    stage: s,
-    items: items.filter((t) => t.stage_id === s.id),
-  }));
+  const grouped = [...stages]
+    .sort((a, b) => a.position - b.position)
+    .map((s) => ({
+      stage: s,
+      items: items.filter(
+        (t) => t.stage_id === s.id && t.status === statusFilter
+      ),
+    }));
 
   return (
     <div>
@@ -149,68 +181,100 @@ export default function JobTalentBoard({ jobId }: Props) {
           Etapas
         </Button>
       </div>
-      <div className="flex gap-4 overflow-x-auto">
+      <div className="mb-4">
+        <div className="flex border-b border-gray-200">
+          {[
+            { value: 'active', label: 'Ativos' },
+            { value: 'withdrawn', label: 'Desistentes' },
+            { value: 'rejected', label: 'Reprovados' },
+          ].map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setStatusFilter(opt.value)}
+              className={
+                'flex-1 px-4 py-2 text-sm font-medium ' +
+                (statusFilter === opt.value
+                  ? 'border-b-2 border-brand text-brand'
+                  : 'text-gray-500')
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div
+        className="grid gap-4"
+        style={{ gridTemplateColumns: `repeat(${grouped.length}, minmax(0, 1fr))` }}
+      >
         {grouped.map(({ stage, items }) => (
           <div
             key={stage.id}
-            className="w-64 bg-gray-100 rounded p-2"
+            className="rounded overflow-hidden flex flex-col"
             onDragOver={(e) => e.preventDefault()}
             onDrop={() => onDrop(stage.id)}
           >
-            <h3 className="font-medium mb-2">{stage.name}</h3>
-            {items.map((t) => (
-              <div
-                key={t.id}
-                className="bg-white rounded shadow p-2 mb-2 cursor-move"
-                draggable
-                onDragStart={() => setDragId(t.id)}
-              >
-                <div className="flex justify-between text-xs text-gray-500">
-                  <span className="flex items-center">
-                    <Clock className="w-3 h-3 mr-1" />
-                    {timeSince(t.created_at)}
-                  </span>
-                  {t.source && <span>{getSourceLabel(t.source)}</span>}
-                </div>
-                <button
-                  className="mt-1 block font-medium hover:underline text-left"
-                  onClick={() =>
-                    setActive({ talentId: t.talent_id, appId: t.id })
-                  }
+            <div className="flex items-center justify-between bg-white px-2 py-2 border-b border-purple-200">
+              <h3 className="font-medium">{stage.name}</h3>
+              <span className="px-2 py-0.5 border border-purple-300 rounded text-sm text-black">
+                {items.length}
+              </span>
+            </div>
+            <div className="bg-purple-50 p-2 flex-1">
+              {items.map((t) => (
+                <div
+                  key={t.id}
+                  className="bg-white rounded shadow p-2 mb-2 cursor-move"
+                  draggable
+                  onDragStart={() => setDragId(t.id)}
                 >
-                  {t.name}
-                </button>
-                {t.tags.length > 0 && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {(() => {
-                      const MAX = 2;
-                      const shown = t.tags.slice(0, MAX);
-                      const extra = t.tags.length - shown.length;
-                      return (
-                        <>
-                          {shown.map((tag) => (
-                            <span
-                              key={tag.name}
-                              className="px-2 py-0.5 rounded text-xs"
-                              style={{
-                                color: tag.color,
-                                backgroundColor: `${tag.color}33`,
-                                fontWeight: 'bold',
-                              }}
-                            >
-                              {tag.name}
-                            </span>
-                          ))}
-                          {extra > 0 && (
-                            <span className="px-2 py-0.5 rounded bg-gray-200 text-xs">+{extra}</span>
-                          )}
-                        </>
-                      );
-                    })()}
+                  <div className="flex justify-between text-xs text-gray-500">
+                    <span className="flex items-center">
+                      <Clock className="w-3 h-3 mr-1" />
+                      {timeSince(t.created_at)}
+                    </span>
+                    {t.source && <span>{getSourceLabel(t.source)}</span>}
                   </div>
-                )}
-              </div>
-            ))}
+                  <button
+                    className="mt-1 block font-medium hover:underline text-left"
+                    onClick={() =>
+                      setActive({ talentId: t.talent_id, appId: t.id })
+                    }
+                  >
+                    {t.name}
+                  </button>
+                  {t.tags.length > 0 && (
+                    <div className="mt-1 flex flex-wrap gap-1">
+                      {(() => {
+                        const MAX = 2;
+                        const shown = t.tags.slice(0, MAX);
+                        const extra = t.tags.length - shown.length;
+                        return (
+                          <>
+                            {shown.map((tag) => (
+                              <span
+                                key={tag.name}
+                                className="px-2 py-0.5 rounded text-xs"
+                                style={{
+                                  color: tag.color,
+                                  backgroundColor: `${tag.color}33`,
+                                  fontWeight: 'bold',
+                                }}
+                              >
+                                {tag.name}
+                              </span>
+                            ))}
+                            {extra > 0 && (
+                              <span className="px-2 py-0.5 rounded bg-gray-200 text-xs">+{extra}</span>
+                            )}
+                          </>
+                        );
+                      })()}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         ))}
       </div>
@@ -229,9 +293,9 @@ export default function JobTalentBoard({ jobId }: Props) {
         open={stageOpen}
         onClose={() => {
           setStageOpen(false);
-          load();
         }}
         jobId={jobId}
+        onOrderChange={setStages}
       />
     </div>
   );
