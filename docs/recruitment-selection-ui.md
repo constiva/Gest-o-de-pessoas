@@ -4,7 +4,7 @@ Esta especificação descreve a interface do módulo de Recrutamento & Seleção
 
 ## Navegação
 - **Sidebar principal**: entrada "Recrutamento & Seleção" abre submódulos.
-- **Topbar fixa**: links para **Vagas**, **Banco de Talentos**, **Pipeline Global**, **Relatórios**, **Exportações** e **Configurações**.
+- **Topbar fixa**: links para **Vagas**, **Banco de Talentos**, **Métricas** e **Configurações**.
 - Header com busca global, filtros rápidos (empresa/área/período), avatar, notificações.
 
 ## Ações e Componentes Globais
@@ -27,12 +27,14 @@ Esta especificação descreve a interface do módulo de Recrutamento & Seleção
 - Layout em tabs: **Visão Geral**, **Talentos**, **Analytics**, **Divulgação**, **Configurações**.
 - Visão Geral: cards de Status, Dias em aberto, Gestor, Etapas do pipeline, Candidatos por etapa, timeline de atividades, botões Editar, Fechar, Congelar, Duplicar.
 - Talentos: tabela ou Kanban com etapas da vaga. Cards mostram nome, cargo/pretensão, dias na etapa, SLA, origem, anexos/notas. Drag‑and‑drop move estágio; reprovar/desistir exige motivo.
-- Analytics: funil da vaga, KPIs de conversão, origem, reprovação e SLA.
+- Analytics: funil da vaga, KPIs de conversão, gráfico de pizza de origem dos talentos (percentual por origem), reprovação e SLA.
 - Divulgação: formulário de anúncio, link público e QR code, campos configuráveis e pré-filtros automáticos.
 - Configurações: etapas customizadas, SLA por etapa, permissões e responsáveis padrão.
 
 ## 2. Banco de Talentos (`/talents`)
 ### Lista
+- Cards exibem ícone de contato, vaga associada e **Data da inscrição**.
+- Abas de status: **Todas**, **Ativos**, **Desistentes** e **Reprovados** filtram os talentos.
 - Topo com: Novo Talento, Importar CSV/Excel, Filtrar, Salvar visão, Colunas, Exportar.
 - Busca global por nome, email, telefone.
 - Colunas: Nome, Email, Telefone, Localização, Senioridade, Skills, Tags, Origem, Último movimento, Status geral, Ações.
@@ -45,41 +47,28 @@ Esta especificação descreve a interface do módulo de Recrutamento & Seleção
 - Coluna direita: histórico em vagas, notas internas, ações (encaminhar para vaga, marcar contatado, adicionar observação).
 - Encaminhar cria application com etapa inicial e responsável.
 
-## 3. Pipeline Global (`/pipeline`)
-- Filtros no topo: vaga, área, gestor, período, origem, etapa, tags; busca por nome.
-- Botões: Agrupar por (Etapa | Vaga | Responsável), Densidade (compacto/normal), Exportar.
-- Kanban com colunas por etapa ou agrupamento escolhido; cards exibem nome, vaga, dias na etapa, SLA badge, origem, responsável, ícones de anexo/nota.
-- Drag‑and‑drop com validações; mover para Reprovado/Desistente exige motivo.
-- Sheet lateral de candidato com ações rápidas (Mover, Reprovar, Desistir, Trocar responsável, Perfil).
+## 3. Métricas (`/metrics`)
+- Funis e KPIs agregados de contratação.
+- Gráficos de tempo médio por etapa e SLA.
 
-## 4. Relatórios (`/reports`)
-- Filtros persistentes: período, vaga, área, origem, responsável.
-- Cards KPI: Time to Fill, Taxa de Conversão, Origem principal, % dentro do SLA, Motivo de reprovação mais comum.
-- Gráficos: funil de contratação, tempo médio por etapa, origem de candidatos, motivos de reprovação.
-- Exportar CSV ou PDF; click em cards aplica drill‑down nos filtros.
-
-## 5. Exportações (`/exports`)
-- Seletor de dataset: Vagas, Talentos, Candidaturas, Eventos, Métricas agregadas.
-- Seleção de colunas e filtros; prévia com primeiras linhas. Botões para Exportar CSV/Excel e Agendar exportação. Histórico de exportações recentes.
-
-## 6. Configurações (`/settings/recruiting`)
+## 4. Configurações (`/settings/recruiting`)
 - CRUD de etapas padrão do processo, SLA por etapa, motivos padronizados, origens, tags e skills.
 - Permissões: papéis, escopos e máscara de PII para `viewer`.
 - Integrações opcionais (email, WhatsApp, webhooks).
 
-## 7. Microcopy
+## 5. Microcopy
 - Exemplos prontos para modais de reprovação, desistência e mensagens de SLA.
 
-## 8. Estados e Validações
+## 6. Estados e Validações
 - Empty states com CTA, feedback de sucesso/erro via toast, confirmações em ações destrutivas, validação de duplicidade de talentos e badges de consentimento LGPD.
 
-## 9. Observabilidade & Telemetria
-- Eventos de uso: `jobs.view_list`, `talents.create`, `applications.move_stage`, `pipeline.view`, `reports.export_pdf`, etc., com company_id, user_id, filtros ativos, latency_ms e resultado.
+## 7. Observabilidade & Telemetria
+- Eventos de uso: `jobs.view_list`, `talents.create`, `applications.move_stage`, `metrics.view`, etc., com company_id, user_id, filtros ativos, latency_ms e resultado.
 
-## 10. Critérios de Aceite Gerais
+## 8. Critérios de Aceite Gerais
 - Filtros e colunas persistem por usuário/visão.
 - Kanban com drag‑and‑drop fluido e auditoria.
 - SLA visível nos cards.
 - Perfis de talento com histórico completo e anexos.
-- Relatórios e exportações refletem exatamente o estado filtrado.
+- Métricas refletem exatamente o estado filtrado.
 - Acessibilidade básica garantida.
