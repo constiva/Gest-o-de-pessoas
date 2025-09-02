@@ -40,7 +40,7 @@ export default function JobTab() {
   const [managerId, setManagerId] = useState('');
   const [editing, setEditing] = useState<Job | null>(null);
   const [open, setOpen] = useState(false);
-  const [view, setView] = useState<'list' | 'cards'>('list');
+  const [view, setView] = useState<'list' | 'cards'>('cards');
   const [sla, setSla] = useState('');
   const [slaDays, setSlaDays] = useState('');
   const [menuJob, setMenuJob] = useState<string | null>(null);
