@@ -1,0 +1,18 @@
+Supabase Storage setup
+======================
+
+Résumé PDFs are stored in the `cvs` bucket.  The upload API uses the
+service role key and will create the bucket automatically if it does not
+exist.  To ensure uploads work in your environment:
+
+1. Set the environment variables used by Next.js:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+2. In the Supabase dashboard, verify the `cvs` bucket exists and is set
+   to **public** so that downloaded links are accessible.
+3. If the bucket was created manually, grant read access to `anon` and
+   `authenticated` roles in Storage policies.
+
+After these steps, uploaded PDFs should appear inside the `cvs` bucket
+and the application will show their download links in the talent modal.
