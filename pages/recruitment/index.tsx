@@ -21,9 +21,7 @@ export default function Recruitment() {
           <TabsList className="mb-4">
             <TabsTrigger value="jobs">Vagas</TabsTrigger>
             <TabsTrigger value="talents">Banco de Talentos</TabsTrigger>
-            <TabsTrigger value="pipeline">Pipeline Global</TabsTrigger>
-            <TabsTrigger value="reports">Relatórios</TabsTrigger>
-            <TabsTrigger value="exports">Exportações</TabsTrigger>
+            <TabsTrigger value="metrics">Métricas</TabsTrigger>
           </TabsList>
           <TabsContent value="jobs">
             <JobTab />
@@ -31,14 +29,8 @@ export default function Recruitment() {
           <TabsContent value="talents">
             <TalentTab />
           </TabsContent>
-          <TabsContent value="pipeline">
-            <p>Pipeline Global em construção.</p>
-          </TabsContent>
-          <TabsContent value="reports">
-            <p>Relatórios em construção.</p>
-          </TabsContent>
-          <TabsContent value="exports">
-            <p>Exportações em construção.</p>
+          <TabsContent value="metrics">
+            <p>Métricas em construção.</p>
           </TabsContent>
         </Tabs>
       </Layout>
