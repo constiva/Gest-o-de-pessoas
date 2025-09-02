@@ -3,7 +3,23 @@ import { useState } from 'react';
 import { createClient } from '@supabase/supabase-js';
 
 interface JobProps {
-  job: { id: string; title: string; company_id: string; form_fields: string[] };
+  job: {
+    id: string;
+    title: string;
+    company_id: string;
+    form_fields: string[];
+    custom_fields: CustomField[];
+    form_field_order: string[];
+    form_field_wide: string[];
+  };
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
+  enabled?: boolean;
 }
 
 const fieldMeta: Record<string, { label: string; type: string; options?: { value: string; label: string }[] }> = {
@@ -15,9 +31,8 @@ const fieldMeta: Record<string, { label: string; type: string; options?: { value
   cv_url: { label: 'Currículo URL', type: 'text' },
   salary_expectation: { label: 'Pretensão salarial', type: 'number' },
   seniority: { label: 'Senioridade', type: 'text' },
-  availability: { label: 'Disponibilidade', type: 'text' },
   source: {
-    label: 'Origem',
+    label: 'Onde você nos encontrou?',
     type: 'select',
     options: [
       { value: 'career_site', label: 'Site' },
@@ -32,6 +47,7 @@ const fieldMeta: Record<string, { label: string; type: string; options?: { value
 
 export default function Apply({ job }: JobProps) {
   const [form, setForm] = useState<Record<string, string>>({});
+  const [custom, setCustom] = useState<Record<string, any>>({});
   const [done, setDone] = useState(false);
 
   const submit = async (e: React.FormEvent) => {
@@ -39,7 +55,7 @@ export default function Apply({ job }: JobProps) {
     const res = await fetch('/api/apply', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ job_id: job.id, data: form }),
+      body: JSON.stringify({ job_id: job.id, data: form, custom }),
     });
     if (res.ok) setDone(true);
   };
@@ -49,38 +65,172 @@ export default function Apply({ job }: JobProps) {
   return (
     <div className="p-4 max-w-xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">{job.title}</h1>
-      <form onSubmit={submit} className="space-y-4">
-        {job.form_fields.map((field) => {
-          const meta = fieldMeta[field];
-          if (!meta) return null;
-          return (
-            <div key={field} className="flex flex-col">
-              <label className="mb-1 font-medium">{meta.label}</label>
-              {meta.type === 'select' ? (
-                <select
-                  required
-                  className="border p-2 rounded"
-                  onChange={(e) => setForm({ ...form, [field]: e.target.value })}
-                >
-                  <option value="">Selecione</option>
-                  {meta.options?.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type={meta.type}
-                  required
-                  className="border p-2 rounded"
-                  onChange={(e) => setForm({ ...form, [field]: e.target.value })}
-                />
-              )}
-            </div>
+      <form onSubmit={submit} className="grid grid-cols-2 gap-4">
+        {(() => {
+          const order = job.form_field_order || [];
+          const builtins = new Set(job.form_fields);
+          const customMap: Record<string, CustomField> = {};
+          job.custom_fields
+            .filter((f) => f.enabled !== false)
+            .forEach((f) => (customMap[f.id] = f));
+          const wide = new Set(job.form_field_wide || []);
+          const fieldMap = new Map<string, { type: 'builtin' | 'custom' }>();
+          builtins.forEach((id) => fieldMap.set(id, { type: 'builtin' }));
+          Object.keys(customMap).forEach((id) =>
+            fieldMap.set(id, { type: 'custom' })
           );
-        })}
-        <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded">
+          const ordered: { id: string; type: 'builtin' | 'custom' }[] = [];
+          order.forEach((id) => {
+            const entry = fieldMap.get(id);
+            if (entry) {
+              ordered.push({ id, type: entry.type });
+              fieldMap.delete(id);
+            }
+          });
+          fieldMap.forEach((val, id) => ordered.push({ id, type: val.type }));
+          return ordered.map((item) => {
+            if (item.type === 'builtin') {
+              const meta = fieldMeta[item.id];
+              if (!meta) return null;
+              const full = wide.has(item.id);
+              return (
+                <div key={item.id} className={`flex flex-col ${full ? 'col-span-2' : ''}`}>
+                  <label className="mb-1 font-medium">{meta.label}</label>
+                  {meta.type === 'select' ? (
+                    <select
+                      required
+                      className="border p-2 rounded"
+                      onChange={(e) =>
+                        setForm({ ...form, [item.id]: e.target.value })
+                      }
+                    >
+                      <option value="">Selecione</option>
+                      {meta.options?.map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      type={meta.type}
+                      required
+                      className="border p-2 rounded"
+                      onChange={(e) =>
+                        setForm({ ...form, [item.id]: e.target.value })
+                      }
+                    />
+                  )}
+                </div>
+              );
+            }
+            const field = customMap[item.id];
+            if (!field) return null;
+            const full =
+              wide.has(field.id) ||
+              field.type === 'textarea' ||
+              field.type === 'radio' ||
+              field.type === 'checkbox' ||
+              field.type === 'multiselect';
+            return (
+              <div
+                key={field.id}
+                className={`flex flex-col ${full ? 'col-span-2' : ''}`}
+              >
+                <label className="mb-1 font-medium">{field.label}</label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    className="border p-2 rounded"
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  />
+                ) : field.type === 'radio' ? (
+                  <div className="space-y-1">
+                    {field.options?.map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={field.id}
+                          value={opt}
+                          onChange={(e) =>
+                            setCustom({ ...custom, [field.id]: e.target.value })
+                          }
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                ) : field.type === 'checkbox' ? (
+                  <div className="space-y-1">
+                    {field.options?.map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          value={opt}
+                          onChange={(e) => {
+                            const prev = custom[field.id] || [];
+                            const checked = e.target.checked;
+                            setCustom({
+                              ...custom,
+                              [field.id]: checked
+                                ? [...prev, opt]
+                                : prev.filter((x: string) => x !== opt),
+                            });
+                          }}
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                ) : field.type === 'select' ? (
+                  <select
+                    className="border p-2 rounded"
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  >
+                    <option value="">Selecione</option>
+                    {field.options?.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === 'multiselect' ? (
+                  <select
+                    multiple
+                    className="border p-2 rounded"
+                    onChange={(e) => {
+                      const selected = Array.from(
+                        e.target.selectedOptions
+                      ).map((o) => o.value);
+                      setCustom({ ...custom, [field.id]: selected });
+                    }}
+                  >
+                    {field.options?.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    type="text"
+                    className="border p-2 rounded"
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            );
+          });
+        })()}
+        <button
+          type="submit"
+          className="col-span-2 px-4 py-2 bg-blue-600 text-white rounded"
+        >
           Enviar
         </button>
       </form>
@@ -95,11 +245,12 @@ export const getServerSideProps: GetServerSideProps = async ({ params }) => {
   );
   const { data: job } = await supabase
     .from('jobs')
-    .select('id,title,company_id,form_fields')
+    .select('id,title,company_id,form_fields,custom_fields,form_field_order,form_field_wide')
     .eq('id', params?.id)
     .maybeSingle();
   if (!job) {
     return { notFound: true };
   }
+  await supabase.rpc('increment_job_link_click', { j: job.id });
   return { props: { job } };
 };
