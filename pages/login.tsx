@@ -65,8 +65,8 @@ export default function Login() {
       .from('companies')
       .select('maxemployees')
       .eq('id', companyId)
-      .single();
-    if (company?.maxemployees === 0) {
+      .maybeSingle();
+    if (company && company.maxemployees === 0) {
       router.push(`/pending?companyId=${companyId}`);
     } else {
       router.push('/dashboard');
