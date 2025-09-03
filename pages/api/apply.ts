@@ -8,7 +8,11 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') return res.status(405).end();
 
-  const { job_id, data } = req.body as { job_id: string; data: Record<string, any> };
+  const { job_id, data, custom } = req.body as {
+    job_id: string;
+    data: Record<string, any>;
+    custom?: Record<string, any>;
+  };
 
   const { data: job, error: jobError } = await supabase
     .from('jobs')
@@ -78,8 +82,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const DEFAULT_STAGES = [
       { name: 'Listados', position: 1, sla_days: 2 },
       { name: 'Triagem Curricular', position: 2, sla_days: 3 },
-      { name: 'Triagem Técnica', position: 3, sla_days: 5 },
-      { name: 'Entrevista Final', position: 4, sla_days: 7 },
+      { name: 'Entrevista', position: 3, sla_days: 7 },
+      { name: 'Feedback e seleção final', position: 4, sla_days: 3 },
       { name: 'Oferta', position: 5, sla_days: 2 },
       { name: 'Admitido', position: 6, sla_days: null },
     ];
@@ -107,24 +111,48 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(400).json({ error: existingErr.message });
   }
 
+  let appId = existingApp?.id;
   let appError;
   if (existingApp) {
     ({ error: appError } = await supabase
       .from('applications')
-      .update({ stage_id: firstStage?.id || null })
+      .update({ stage_id: firstStage?.id || null, custom_answers: custom || {} })
       .eq('id', existingApp.id));
   } else {
-    ({ error: appError } = await supabase.from('applications').insert({
-      company_id: job.company_id,
-      job_id,
-      talent_id: talent.id,
-      stage_id: firstStage?.id || null,
-    }));
+    const { data: inserted, error } = await supabase
+      .from('applications')
+      .insert({
+        company_id: job.company_id,
+        job_id,
+        talent_id: talent.id,
+        stage_id: firstStage?.id || null,
+        custom_answers: custom || {},
+      })
+      .select('id')
+      .single();
+    appError = error;
+    appId = inserted?.id;
   }
 
-  if (appError) {
+  if (appError || !appId) {
     console.error('Application save error', appError);
-    return res.status(400).json({ error: appError.message });
+    return res.status(400).json({ error: appError?.message || 'Erro ao salvar candidatura' });
+  }
+
+  if (firstStage?.id) {
+    const now = new Date().toISOString();
+    const { data: existingStage } = await supabase
+      .from('application_stage_dates')
+      .select('day_in')
+      .eq('application_id', appId)
+      .eq('stage_id', firstStage.id)
+      .maybeSingle();
+    await supabase.from('application_stage_dates').upsert({
+      application_id: appId,
+      stage_id: firstStage.id,
+      day_in: existingStage?.day_in || now,
+      day_out: null,
+    });
   }
 
   return res.status(200).json({ success: true });
