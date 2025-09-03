@@ -77,6 +77,8 @@ export const SOURCE_LABELS: Record<string, string> = {
   linkedin: 'LinkedIn',
   import: 'Importação',
   event: 'Evento',
+  instagram: 'Instagram',
+  internal_referral: 'Indicação interna',
   other: 'Outro',
 };
 
