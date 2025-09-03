@@ -32,9 +32,10 @@ interface ApplicationItem {
 const DEFAULT_STAGES = [
   { name: 'Listados', position: 1, sla_days: 2 },
   { name: 'Triagem Curricular', position: 2, sla_days: 3 },
-  { name: 'Entrevista Final', position: 3, sla_days: 7 },
-  { name: 'Oferta', position: 4, sla_days: 2 },
-  { name: 'Admitido', position: 5, sla_days: null },
+  { name: 'Entrevista', position: 3, sla_days: 7 },
+  { name: 'Feedback e seleção final', position: 4, sla_days: 3 },
+  { name: 'Oferta', position: 5, sla_days: 2 },
+  { name: 'Admitido', position: 6, sla_days: null },
 ];
 
 interface Props {
