@@ -1,12 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '../../lib/supabaseClient';
 import { Button } from '../ui/button';
-import { X, Settings } from 'lucide-react';
+import { X, Settings, ChevronDown } from 'lucide-react';
 import TagSidebar from '../TagSidebar';
 
 interface Tag {
   name: string;
   color: string;
+}
+
+interface CustomField {
+  id: string;
+  label: string;
+  type: string;
+  options?: string[];
+  enabled?: boolean;
 }
 
 interface Props {
@@ -25,21 +33,68 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
   const [cvUrl, setCvUrl] = useState('');
   const [salary, setSalary] = useState('');
   const [seniority, setSeniority] = useState('');
-  const [availability, setAvailability] = useState('');
   const [source, setSource] = useState('');
+  const [status, setStatus] = useState('active');
   const [comment, setComment] = useState('');
   const [tags, setTags] = useState<Tag[]>([]);
   const [newTag, setNewTag] = useState('');
   const [newColor, setNewColor] = useState('#a855f7');
   const [suggestions, setSuggestions] = useState<Tag[]>([]);
   const [tagOpen, setTagOpen] = useState(false);
+  const [custom, setCustom] = useState<Record<string, any>>({});
+  const [orderedFields, setOrderedFields] = useState<
+    { id: string; type: 'builtin' | 'custom' }[]
+  >([]);
+  const [customMap, setCustomMap] = useState<Record<string, CustomField>>({});
+  const [wide, setWide] = useState<Set<string>>(new Set());
+  const cvInputRef = useRef<HTMLInputElement>(null);
+
+  const fieldMeta: Record<
+    string,
+    { label: string; type: string; options?: { value: string; label: string }[] }
+  > = {
+    name: { label: 'Nome', type: 'text' },
+    email: { label: 'Email', type: 'email' },
+    phone: { label: 'Telefone', type: 'text' },
+    city: { label: 'Cidade', type: 'text' },
+    state: { label: 'Estado', type: 'text' },
+    cv_url: { label: 'Currículo (PDF)', type: 'file' },
+    salary_expectation: { label: 'Pretensão salarial', type: 'number' },
+    seniority: { label: 'Senioridade', type: 'text' },
+    source: {
+      label: 'Origem do talento',
+      type: 'select',
+      options: [
+        { value: 'career_site', label: 'Site' },
+        { value: 'referral', label: 'Indicação' },
+        { value: 'linkedin', label: 'LinkedIn' },
+        { value: 'import', label: 'Importação' },
+        { value: 'event', label: 'Evento' },
+        { value: 'instagram', label: 'Instagram' },
+        { value: 'internal_referral', label: 'Indicação interna' },
+        { value: 'other', label: 'Outro' },
+      ],
+    },
+  };
+
+  const builtinValues: Record<string, [string, (v: string) => void]> = {
+    name: [name, setName],
+    email: [email, setEmail],
+    phone: [phone, setPhone],
+    city: [city, setCity],
+    state: [state, setState],
+    cv_url: [cvUrl, setCvUrl],
+    salary_expectation: [salary, setSalary],
+    seniority: [seniority, setSeniority],
+    source: [source, setSource],
+  };
 
   useEffect(() => {
     const load = async () => {
       const { data: talent } = await supabase
         .from('talents')
         .select(
-          'name,email,phone,city,state,cv_url,salary_expectation,seniority,availability,source,comment,talent_tag_map(tag:talent_tags(name,color))'
+          'name,email,phone,city,state,cv_url,salary_expectation,seniority,source,status,comment,talent_tag_map(tag:talent_tags(name,color))'
         )
         .eq('id', talentId)
         .single();
@@ -52,8 +107,8 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
         setCvUrl(talent.cv_url || '');
         setSalary(talent.salary_expectation?.toString() || '');
         setSeniority(talent.seniority || '');
-        setAvailability(talent.availability || '');
         setSource(talent.source || '');
+        setStatus(talent.status || 'active');
         setComment(talent.comment || '');
         setTags(
           talent.talent_tag_map?.map((m: any) => ({
@@ -65,6 +120,50 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
     };
     if (talentId) load();
   }, [talentId]);
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: app } = await supabase
+        .from('applications')
+        .select('job_id, custom_answers')
+        .eq('id', applicationId)
+        .maybeSingle();
+      if (!app) return;
+      setCustom(app.custom_answers || {});
+      const { data: job } = await supabase
+        .from('jobs')
+        .select(
+          'form_fields, custom_fields, form_field_order, form_field_wide'
+        )
+        .eq('id', app.job_id)
+        .maybeSingle();
+      if (!job) return;
+      // include all built-in fields regardless of visibility on the public form
+      const builtins = new Set<string>(Object.keys(fieldMeta));
+      const cMap: Record<string, CustomField> = {};
+      // show custom fields even if they are disabled on the public form
+      (job.custom_fields || []).forEach((f: CustomField) => {
+        cMap[f.id] = f;
+      });
+      const fieldMap = new Map<string, { type: 'builtin' | 'custom' }>();
+      builtins.forEach((id) => fieldMap.set(id, { type: 'builtin' }));
+      Object.keys(cMap).forEach((id) => fieldMap.set(id, { type: 'custom' }));
+      const order: string[] = job.form_field_order || [];
+      const ordered: { id: string; type: 'builtin' | 'custom' }[] = [];
+      order.forEach((id) => {
+        const entry = fieldMap.get(id);
+        if (entry) {
+          ordered.push({ id, type: entry.type });
+          fieldMap.delete(id);
+        }
+      });
+      fieldMap.forEach((val, id) => ordered.push({ id, type: val.type }));
+      setOrderedFields(ordered);
+      setCustomMap(cMap);
+      setWide(new Set(job.form_field_wide || []));
+    };
+    if (applicationId) load();
+  }, [applicationId]);
 
   const refreshTags = async () => {
     const { data } = await supabase
@@ -102,6 +201,33 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
     setNewColor('#a855f7');
   };
 
+  const handleCvChange = async (
+    e: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      const buf = await file.arrayBuffer();
+      const binary = Array.from(new Uint8Array(buf))
+        .map((b) => String.fromCharCode(b))
+        .join('');
+      const base64 = btoa(binary);
+      const res = await fetch('/api/upload-cv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileName: file.name, base64 }),
+      });
+      const data = await res.json();
+      if (data.url) {
+        setCvUrl(data.url);
+      } else {
+        console.error('CV upload error', data.error);
+      }
+    } catch (err) {
+      console.error('CV upload failed', err);
+    }
+  };
+
   const removeTag = (name: string) =>
     setTags(tags.filter((tag) => tag.name !== name));
 
@@ -111,20 +237,29 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
       .update({
         name,
         email,
-        phone,
-        city,
-        state,
-        cv_url: cvUrl,
+        phone: phone || null,
+        city: city || null,
+        state: state || null,
+        cv_url: cvUrl || null,
         salary_expectation: salary ? Number(salary) : null,
-        seniority,
-        availability,
-        source,
-        comment,
+        seniority: seniority || null,
+        source: source || null,
+        status,
+        comment: comment || null,
       })
       .eq('id', talentId);
     if (tError) {
       console.error(tError);
       alert(tError.message);
+      return;
+    }
+    const { error: aError } = await supabase
+      .from('applications')
+      .update({ custom_answers: custom })
+      .eq('id', applicationId);
+    if (aError) {
+      console.error(aError);
+      alert(aError.message);
       return;
     }
     const { data: existing } = await supabase
@@ -171,99 +306,230 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
           </button>
         </div>
         <div className="grid gap-4 sm:grid-cols-2 mb-4">
+          {orderedFields.map((item) => {
+            if (item.type === 'builtin') {
+              const meta = fieldMeta[item.id];
+              if (!meta) return null;
+              const [val, setVal] = builtinValues[item.id] || ['', () => {}];
+              const full = wide.has(item.id);
+              return (
+                <div
+                  key={item.id}
+                  className={`flex flex-col ${full ? 'sm:col-span-2' : ''}`}
+                >
+                  <label className="block text-sm font-medium mb-1">
+                    {meta.label}
+                  </label>
+                  {meta.type === 'select' ? (
+                    <div className="relative">
+                      <select
+                        className="w-full border p-2 rounded appearance-none pr-8"
+                        value={val}
+                        onChange={(e) => setVal(e.target.value)}
+                      >
+                        <option value="">Selecione</option>
+                        {meta.options?.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                      <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
+                    </div>
+                  ) : meta.type === 'file' ? (
+                    <div>
+                      {val ? (
+                        <div className="flex items-center gap-2">
+                          <span className="flex-1 truncate">
+                            {val.split('/').pop()?.split('?')[0]}
+                          </span>
+                          <a
+                            href={val}
+                            download
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-purple-600 underline"
+                          >
+                            Baixar
+                          </a>
+                          <Button
+                            type="button"
+                            onClick={() => cvInputRef.current?.click()}
+                          >
+                            Alterar
+                          </Button>
+                          <input
+                            ref={cvInputRef}
+                            type="file"
+                            accept="application/pdf"
+                            className="hidden"
+                            onChange={handleCvChange}
+                          />
+                        </div>
+                      ) : (
+                        <input
+                          type="file"
+                          accept="application/pdf"
+                          className="w-full border p-2 rounded"
+                          onChange={handleCvChange}
+                        />
+                      )}
+                    </div>
+                  ) : (
+                    <input
+                      type={meta.type}
+                      className="w-full border p-2 rounded"
+                      value={val}
+                      onChange={(e) => setVal(e.target.value)}
+                    />
+                  )}
+                </div>
+              );
+            }
+            const field = customMap[item.id];
+            if (!field) return null;
+            const value = custom[field.id];
+            const full =
+              wide.has(field.id) ||
+              field.type === 'textarea' ||
+              field.type === 'radio' ||
+              field.type === 'checkbox' ||
+              field.type === 'multiselect';
+            return (
+              <div
+                key={field.id}
+                className={`flex flex-col ${full ? 'sm:col-span-2' : ''}`}
+              >
+                <label className="block text-sm font-medium mb-1">
+                  {field.label}
+                </label>
+                {field.type === 'textarea' ? (
+                  <textarea
+                    className="w-full border p-2 rounded"
+                    value={value || ''}
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  />
+                ) : field.type === 'radio' ? (
+                  <div className="space-y-1">
+                    {field.options?.map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input
+                          type="radio"
+                          name={field.id}
+                          value={opt}
+                          checked={value === opt}
+                          onChange={(e) =>
+                            setCustom({ ...custom, [field.id]: e.target.value })
+                          }
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                ) : field.type === 'checkbox' ? (
+                  <div className="space-y-1">
+                    {field.options?.map((opt) => (
+                      <label key={opt} className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          value={opt}
+                          checked={(value || []).includes(opt)}
+                          onChange={(e) => {
+                            const prev = value || [];
+                            const checked = e.target.checked;
+                            setCustom({
+                              ...custom,
+                              [field.id]: checked
+                                ? [...prev, opt]
+                                : prev.filter((x: string) => x !== opt),
+                            });
+                          }}
+                        />
+                        {opt}
+                      </label>
+                    ))}
+                  </div>
+                ) : field.type === 'select' ? (
+                  <select
+                    className="w-full border p-2 rounded"
+                    value={value || ''}
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  >
+                    <option value="">Selecione</option>
+                    {field.options?.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : field.type === 'multiselect' ? (
+                  <select
+                    multiple
+                    className="w-full border p-2 rounded"
+                    value={value || []}
+                    onChange={(e) =>
+                      setCustom({
+                        ...custom,
+                        [field.id]: Array.from(
+                          e.target.selectedOptions,
+                          (o) => o.value
+                        ),
+                      })
+                    }
+                  >
+                    {field.options?.map((opt) => (
+                      <option key={opt} value={opt}>
+                        {opt}
+                      </option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="w-full border p-2 rounded"
+                    value={value || ''}
+                    onChange={(e) =>
+                      setCustom({ ...custom, [field.id]: e.target.value })
+                    }
+                  />
+                )}
+              </div>
+            );
+          })}
           <div className="sm:col-span-2">
-            <label className="block text-sm font-medium mb-1">Nome</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Email</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Telefone</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Cidade</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Estado</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-            />
-          </div>
-          <div className="sm:col-span-2">
-            <label className="block text-sm font-medium mb-1">URL do currículo</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={cvUrl}
-              onChange={(e) => setCvUrl(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Pretensão salarial</label>
-            <input
-              type="number"
-              className="w-full border p-2 rounded"
-              value={salary}
-              onChange={(e) => setSalary(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Senioridade</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={seniority}
-              onChange={(e) => setSeniority(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Disponibilidade</label>
-            <input
-              className="w-full border p-2 rounded"
-              value={availability}
-              onChange={(e) => setAvailability(e.target.value)}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">Fonte</label>
-            <select
-              className="w-full border p-2 rounded appearance-none pr-6"
-              value={source}
-              onChange={(e) => setSource(e.target.value)}
-            >
-              <option value="">Selecione</option>
-              <option value="career_site">Site</option>
-              <option value="referral">Indicação</option>
-              <option value="linkedin">LinkedIn</option>
-              <option value="import">Importação</option>
-              <option value="event">Evento</option>
-              <option value="other">Outro</option>
-            </select>
+            <label className="block text-sm font-medium mb-1">Status</label>
+            <div className="space-y-2">
+              {[
+                { value: 'active', label: 'Ativo' },
+                { value: 'withdrawn', label: 'Desistente' },
+                { value: 'rejected', label: 'Reprovado' },
+              ].map((opt) => (
+                <label key={opt.value} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="radio"
+                    name="status"
+                    value={opt.value}
+                    checked={status === opt.value}
+                    onChange={(e) => setStatus(e.target.value)}
+                    className="h-4 w-4 accent-brand"
+                  />
+                  {opt.label}
+                </label>
+              ))}
+            </div>
           </div>
           <div className="sm:col-span-2">
             <div className="flex items-center justify-between mb-1">
               <div className="font-medium">Tags</div>
-              <Button type="button" variant="outline" size="icon" onClick={() => setTagOpen(true)}>
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                onClick={() => setTagOpen(true)}
+              >
                 <Settings className="h-4 w-4" />
               </Button>
             </div>
@@ -284,9 +550,9 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
               ))}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <div className="flex-1">
+              <div className="flex-1 relative">
                 <input
-                  className="w-full border p-2 rounded appearance-none"
+                  className="w-full border p-2 rounded appearance-none pr-8"
                   placeholder="Adicionar tag"
                   value={newTag}
                   list="tag-suggestions"
@@ -297,6 +563,7 @@ export default function TalentModal({ talentId, applicationId, companyId, onClos
                     setNewColor(found?.color || '#a855f7');
                   }}
                 />
+                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-500 pointer-events-none" />
               </div>
               <datalist id="tag-suggestions">
                 {suggestions.map((s) => (
