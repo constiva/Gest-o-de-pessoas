@@ -5,10 +5,19 @@ import { cn } from '../lib/utils';
 import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
+const defaultScopes = {
+  dashboard: true,
+  employees: true,
+  recruitment: true,
+  metrics: true,
+  users: true,
+};
+
 export default function Sidebar() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
+  const [scopes, setScopes] = useState<{ [key: string]: boolean }>(defaultScopes);
 
   useEffect(() => {
     supabase.auth.getUser().then(async ({ data }) => {
@@ -25,11 +34,12 @@ export default function Sidebar() {
       }
       const { data: companyUser } = await supabase
         .from('companies_users')
-        .select('name,email')
+        .select('name,email,scopes')
         .eq('user_id', user.id)
         .maybeSingle();
       if (companyUser) {
         setProfile(companyUser);
+        setScopes({ ...defaultScopes, ...companyUser.scopes });
         return;
       }
       const { data: unitUser } = await supabase
@@ -42,18 +52,20 @@ export default function Sidebar() {
   }, []);
 
   const links = [
-    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { href: '/employees', label: 'Funcionários', icon: Users },
-    { href: '/recruitment', label: 'Recrutamento & Seleção', icon: Briefcase },
-    { href: '/metrics', label: 'Métricas', icon: BarChart3 },
-    { href: '/users', label: 'Usuários & Permissões', icon: UserCog },
+    { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, scope: 'dashboard' },
+    { href: '/employees', label: 'Funcionários', icon: Users, scope: 'employees' },
+    { href: '/recruitment', label: 'Recrutamento & Seleção', icon: Briefcase, scope: 'recruitment' },
+    { href: '/metrics', label: 'Métricas', icon: BarChart3, scope: 'metrics' },
+    { href: '/users', label: 'Usuários & Permissões', icon: UserCog, scope: 'users' },
   ];
 
   return (
     <aside className="w-64 bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 min-h-screen p-6 flex flex-col">
       <h2 className="text-2xl font-bold text-brand mb-8">Constiva</h2>
       <nav className="flex flex-col space-y-1">
-        {links.map(({ href, label, icon: Icon }) => (
+        {links
+          .filter(({ scope }) => scopes[scope] !== false)
+          .map(({ href, label, icon: Icon }) => (
           <Link
             key={href}
             href={href}
