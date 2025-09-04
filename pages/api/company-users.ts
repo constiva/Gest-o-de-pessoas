@@ -8,7 +8,17 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const { email, password, name, phone, position, role, scopes, company_id } = req.body;
+    const {
+      email,
+      password,
+      name,
+      phone,
+      position,
+      role,
+      scopes,
+      allowed_fields,
+      company_id,
+    } = req.body;
 
     const { data: userData, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -34,8 +44,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { data: companyUser, error: insertError } = await supabase
       .from('companies_users')
-      .insert({ company_id, user_id: userId, name, email, phone, position, role, scopes })
-      .select('user_id,name,email,phone,position,role,scopes')
+      .insert({
+        company_id,
+        user_id: userId,
+        name,
+        email,
+        phone,
+        position,
+        role,
+        scopes,
+        allowed_fields,
+      })
+      .select('user_id,name,email,phone,position,role,scopes,allowed_fields')
       .single();
 
     if (insertError) {
@@ -46,7 +66,18 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   if (req.method === 'PUT') {
-    const { user_id, company_id, name, email, phone, position, password, role, scopes } = req.body;
+    const {
+      user_id,
+      company_id,
+      name,
+      email,
+      phone,
+      position,
+      password,
+      role,
+      scopes,
+      allowed_fields,
+    } = req.body;
 
     const updateAuthPayload: any = {
       email,
@@ -78,10 +109,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { data: updatedUser, error: updateError } = await supabase
       .from('companies_users')
-      .update({ name, email, phone, position, role, scopes })
+      .update({ name, email, phone, position, role, scopes, allowed_fields })
       .eq('company_id', company_id)
       .eq('user_id', user_id)
-      .select('user_id,name,email,phone,position,role,scopes')
+      .select('user_id,name,email,phone,position,role,scopes,allowed_fields')
       .single();
 
     if (updateError) {
