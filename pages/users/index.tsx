@@ -4,6 +4,8 @@ import { supabase } from '../../lib/supabaseClient';
 import { Input } from '../../components/ui/input';
 import { Button } from '../../components/ui/button';
 import PositionSidebar from '../../components/PositionSidebar';
+import ModulePermissionCard from '../../components/ModulePermissionCard';
+import FieldPermissionsModal from '../../components/FieldPermissionsModal';
 
 interface CompanyUser {
   user_id: string;
@@ -12,7 +14,7 @@ interface CompanyUser {
   phone: string;
   position: string | null;
   role: string;
-  scopes: { [key: string]: boolean };
+  scopes: { [key: string]: any };
 }
 
 interface CompanyUnit {
@@ -22,6 +24,14 @@ interface CompanyUnit {
   phone: string;
 }
 
+const defaultScopes = {
+  dashboard: true,
+  employees: true,
+  recruitment: true,
+  metrics: true,
+  users: true,
+};
+
 export default function CompanyUsersPage() {
   const [tab, setTab] = useState<'users' | 'units'>('users');
   const [users, setUsers] = useState<CompanyUser[]>([]);
@@ -29,6 +39,9 @@ export default function CompanyUsersPage() {
   const [companyId, setCompanyId] = useState('');
   const [positions, setPositions] = useState<string[]>([]);
   const [posOpen, setPosOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const [creatingUser, setCreatingUser] = useState(false);
+  const [creatingUnit, setCreatingUnit] = useState(false);
 
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -36,8 +49,9 @@ export default function CompanyUsersPage() {
   const [password, setPassword] = useState('');
   const [position, setPosition] = useState('');
   const [role, setRole] = useState('viewer');
-  const [scopes, setScopes] = useState<{ [key: string]: boolean }>({});
+  const [scopes, setScopes] = useState<any>({ ...defaultScopes, employees_fields: {} });
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [fieldsOpen, setFieldsOpen] = useState(false);
 
   const [uName, setUName] = useState('');
   const [uEmail, setUEmail] = useState('');
@@ -46,9 +60,11 @@ export default function CompanyUsersPage() {
   const [unitEditingId, setUnitEditingId] = useState<string | null>(null);
 
   const scopeLabels: Record<string, string> = {
+    dashboard: 'Dashboard',
     employees: 'Funcionários',
-    metrics: 'Métricas',
     recruitment: 'R&S',
+    metrics: 'Métricas',
+    users: 'Usuários',
   };
 
   const roleLabels: Record<string, string> = {
@@ -58,9 +74,9 @@ export default function CompanyUsersPage() {
     viewer: 'Visualizador',
   };
 
-  const formatScopes = (s: { [key: string]: boolean }) =>
-    Object.keys(s || {})
-      .filter((k) => s[k])
+  const formatScopes = (s: { [key: string]: any }) =>
+    Object.keys(defaultScopes)
+      .filter((k) => (s || {})[k] !== false)
       .map((k) => scopeLabels[k] || k)
       .join(', ');
 
@@ -99,6 +115,48 @@ export default function CompanyUsersPage() {
     load();
   }, []);
 
+  const startCreateUser = () => {
+    setCreatingUser(true);
+    setEditingId(null);
+    setName('');
+    setEmail('');
+    setPhone('');
+    setPassword('');
+    setPosition('');
+    setRole('viewer');
+    setScopes({ ...defaultScopes, employees_fields: {} });
+  };
+
+  const closeUserForm = () => {
+    setCreatingUser(false);
+    setEditingId(null);
+    setName('');
+    setEmail('');
+    setPhone('');
+    setPassword('');
+    setPosition('');
+    setRole('viewer');
+    setScopes({ ...defaultScopes, employees_fields: {} });
+  };
+
+  const startCreateUnit = () => {
+    setCreatingUnit(true);
+    setUnitEditingId(null);
+    setUName('');
+    setUEmail('');
+    setUPhone('');
+    setUPassword('');
+  };
+
+  const closeUnitForm = () => {
+    setCreatingUnit(false);
+    setUnitEditingId(null);
+    setUName('');
+    setUEmail('');
+    setUPhone('');
+    setUPassword('');
+  };
+
   const saveUser = async () => {
     const method = editingId ? 'PUT' : 'POST';
     const res = await fetch('/api/company-users', {
@@ -125,25 +183,19 @@ export default function CompanyUsersPage() {
       } else {
         setUsers([...users, data.user]);
       }
-      setEditingId(null);
-      setName('');
-      setEmail('');
-      setPhone('');
-      setPassword('');
-      setPosition('');
-      setRole('viewer');
-      setScopes({});
+      closeUserForm();
     }
   };
 
   const startEdit = (u: CompanyUser) => {
+    setCreatingUser(false);
     setEditingId(u.user_id);
     setName(u.name);
     setEmail(u.email);
     setPhone(u.phone);
     setPosition(u.position || '');
     setRole(u.role || 'viewer');
-    setScopes(u.scopes || {});
+    setScopes({ ...defaultScopes, employees_fields: {}, ...(u.scopes || {}) });
   };
 
   const deleteUser = async (user_id: string) => {
@@ -158,6 +210,9 @@ export default function CompanyUsersPage() {
       alert(data.error);
     } else {
       setUsers(users.filter((u) => u.user_id !== user_id));
+      if (editingId === user_id) {
+        closeUserForm();
+      }
     }
   };
 
@@ -184,15 +239,12 @@ export default function CompanyUsersPage() {
       } else {
         setUnits([...units, data.user]);
       }
-      setUnitEditingId(null);
-      setUName('');
-      setUEmail('');
-      setUPhone('');
-      setUPassword('');
+      closeUnitForm();
     }
   };
 
   const startEditUnit = (u: CompanyUnit) => {
+    setCreatingUnit(false);
     setUnitEditingId(u.user_id);
     setUName(u.name);
     setUEmail(u.email);
@@ -211,207 +263,206 @@ export default function CompanyUsersPage() {
       alert(data.error);
     } else {
       setUnits(units.filter((u) => u.user_id !== user_id));
+      if (unitEditingId === user_id) {
+        closeUnitForm();
+      }
     }
   };
+
+  const filteredUsers = users.filter(
+    (u) =>
+      u.name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+  );
+  const filteredUnits = units.filter(
+    (u) =>
+      u.name.toLowerCase().includes(search.toLowerCase()) ||
+      u.email.toLowerCase().includes(search.toLowerCase())
+  );
 
   return (
     <Layout>
       <div className="mb-8">
         <h1 className="text-2xl font-bold mb-4">Usuários & Permissões</h1>
-      <div className="mb-4 flex gap-2">
-        <Button variant={tab === 'users' ? 'default' : 'outline'} onClick={() => setTab('users')}>
-          Usuários
-        </Button>
-        <Button variant={tab === 'units' ? 'default' : 'outline'} onClick={() => setTab('units')}>
-          Unidades
-        </Button>
-      </div>
-      {tab === 'users' ? (
-        <>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-4">
-              <Input placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} />
-              <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <Input placeholder="Telefone" value={phone} onChange={(e) => setPhone(e.target.value)} />
-              <Input
-                placeholder="Senha"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-              <div className="flex items-center gap-2">
-                <select
-                  className="border p-2 rounded w-full"
-                  value={position}
-                  onChange={(e) => setPosition(e.target.value)}
+
+        <div className="mb-4 border-b flex">
+          <button
+            className={`px-4 py-2 -mb-px ${tab === 'users' ? 'border-b-2 border-black' : 'text-gray-500'}`}
+            onClick={() => {
+              setTab('users');
+              setSearch('');
+              setCreatingUser(false);
+              setCreatingUnit(false);
+              setEditingId(null);
+              setUnitEditingId(null);
+            }}
+          >
+            Usuários
+          </button>
+          <button
+            className={`px-4 py-2 -mb-px ${tab === 'units' ? 'border-b-2 border-black' : 'text-gray-500'}`}
+            onClick={() => {
+              setTab('units');
+              setSearch('');
+              setCreatingUser(false);
+              setCreatingUnit(false);
+              setEditingId(null);
+              setUnitEditingId(null);
+            }}
+          >
+            Unidades
+          </button>
+        </div>
+
+        <div className="flex gap-2 mb-4">
+          <Input
+            placeholder="Pesquisar"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+          <Button onClick={tab === 'users' ? startCreateUser : startCreateUnit}>
+            {tab === 'users' ? 'Criar usuário' : 'Criar unidade'}
+          </Button>
+        </div>
+
+        {tab === 'users' ? (
+          <div className="flex gap-4">
+            <div className="w-1/3 space-y-2">
+              {filteredUsers.map((u) => (
+                <div
+                  key={u.user_id}
+                  onClick={() => startEdit(u)}
+                  className={`border p-2 rounded cursor-pointer ${
+                    editingId === u.user_id && !creatingUser ? 'bg-gray-100' : ''
+                  }`}
                 >
-                  <option value="">Cargo</option>
-                  {positions.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-                <Button type="button" variant="outline" size="sm" onClick={() => setPosOpen(true)}>
-                  Cargos
-                </Button>
-              </div>
-              <select
-                className="border p-2 rounded w-full"
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-              >
-                <option value="admin">Administrador</option>
-                <option value="manager">Gestor</option>
-                <option value="recruiter">Recrutador</option>
-                <option value="viewer">Visualizador</option>
-              </select>
-              <div className="sm:col-span-2 lg:col-span-3 flex gap-4">
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={scopes.employees || false}
-                    onChange={(e) => setScopes({ ...scopes, employees: e.target.checked })}
-                  />
-                  Funcionários
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={scopes.metrics || false}
-                    onChange={(e) => setScopes({ ...scopes, metrics: e.target.checked })}
-                  />
-                  Métricas
-                </label>
-                <label className="flex items-center gap-1">
-                  <input
-                    type="checkbox"
-                    checked={scopes.recruitment || false}
-                    onChange={(e) =>
-                      setScopes({ ...scopes, recruitment: e.target.checked })
-                    }
-                  />
-                  R&S
-                </label>
-              </div>
-              <div className="sm:col-span-2 lg:col-span-3 flex gap-2">
-                <Button onClick={saveUser} disabled={!name || !email || (!password && !editingId)}>
-                  {editingId ? 'Salvar' : 'Adicionar'}
-                </Button>
-                {editingId && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setEditingId(null);
-                      setName('');
-                      setEmail('');
-                      setPhone('');
-                      setPassword('');
-                      setPosition('');
-                      setRole('viewer');
-                      setScopes({});
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                )}
-              </div>
+                  <div className="font-semibold">{u.name}</div>
+                  <div className="text-sm text-gray-600">{u.email}</div>
+                  <div className="text-xs text-gray-500">
+                    {formatScopes(u.scopes)}
+                  </div>
+                </div>
+              ))}
             </div>
-            <table className="w-full text-left border">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-2">Nome</th>
-                  <th className="p-2">Email</th>
-                  <th className="p-2">Telefone</th>
-                  <th className="p-2">Cargo</th>
-                  <th className="p-2">Papel</th>
-                  <th className="p-2">Módulos</th>
-                  <th className="p-2">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {users.map((u) => (
-                  <tr key={u.user_id} className="border-b">
-                    <td className="p-2">{u.name}</td>
-                    <td className="p-2">{u.email}</td>
-                    <td className="p-2">{u.phone}</td>
-                    <td className="p-2">{u.position}</td>
-                    <td className="p-2">{roleLabels[u.role] || u.role}</td>
-                    <td className="p-2">{formatScopes(u.scopes)}</td>
-                    <td className="p-2 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => startEdit(u)}>
-                        Editar
-                      </Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteUser(u.user_id)}>
-                        Excluir
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
+            <div className="flex-1">
+              {(creatingUser || editingId) && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  <Input placeholder="Nome" value={name} onChange={(e) => setName(e.target.value)} />
+                  <Input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+                  <Input placeholder="Telefone" value={phone} onChange={(e) => setPhone(e.target.value)} />
+                  <Input
+                    placeholder="Senha"
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                  <div className="flex items-center gap-2">
+                    <select
+                      className="border p-2 rounded w-full"
+                      value={position}
+                      onChange={(e) => setPosition(e.target.value)}
+                    >
+                      <option value="">Cargo</option>
+                      {positions.map((p) => (
+                        <option key={p} value={p}>
+                          {p}
+                        </option>
+                      ))}
+                    </select>
+                    <Button type="button" variant="outline" size="sm" onClick={() => setPosOpen(true)}>
+                      Cargos
+                    </Button>
+                  </div>
+                  <select
+                    className="border p-2 rounded w-full"
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                  >
+                    <option value="admin">Administrador</option>
+                    <option value="manager">Gestor</option>
+                    <option value="recruiter">Recrutador</option>
+                    <option value="viewer">Visualizador</option>
+                  </select>
+                  <div className="sm:col-span-2 lg:col-span-3 flex gap-4 flex-wrap">
+                    <ModulePermissionCard
+                      label="Dashboard"
+                      enabled={scopes.dashboard}
+                      onToggle={(v) => setScopes({ ...scopes, dashboard: v })}
+                    />
+                    <ModulePermissionCard
+                      label="Funcionários"
+                      enabled={scopes.employees}
+                      onToggle={(v) => setScopes({ ...scopes, employees: v })}
+                      onConfig={() => setFieldsOpen(true)}
+                    />
+                    <ModulePermissionCard
+                      label="R&S"
+                      enabled={scopes.recruitment}
+                      onToggle={(v) => setScopes({ ...scopes, recruitment: v })}
+                    />
+                    <ModulePermissionCard
+                      label="Métricas"
+                      enabled={scopes.metrics}
+                      onToggle={(v) => setScopes({ ...scopes, metrics: v })}
+                    />
+                    <ModulePermissionCard
+                      label="Usuários"
+                      enabled={scopes.users}
+                      onToggle={(v) => setScopes({ ...scopes, users: v })}
+                    />
+                  </div>
+                  <div className="sm:col-span-2 lg:col-span-3 flex gap-2">
+                    <Button onClick={saveUser} disabled={!name || !email || (!password && !editingId)}>
+                      {editingId ? 'Salvar' : 'Adicionar'}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={closeUserForm}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         ) : (
-          <>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 mb-4">
-              <Input placeholder="Nome" value={uName} onChange={(e) => setUName(e.target.value)} />
-              <Input placeholder="Email" value={uEmail} onChange={(e) => setUEmail(e.target.value)} />
-              <Input placeholder="Telefone" value={uPhone} onChange={(e) => setUPhone(e.target.value)} />
-              <Input
-                placeholder="Senha"
-                type="password"
-                value={uPassword}
-                onChange={(e) => setUPassword(e.target.value)}
-              />
-              <div className="sm:col-span-2 lg:col-span-3 flex gap-2">
-                <Button onClick={saveUnit} disabled={!uName || !uEmail || (!uPassword && !unitEditingId)}>
-                  {unitEditingId ? 'Salvar' : 'Adicionar'}
-                </Button>
-                {unitEditingId && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setUnitEditingId(null);
-                      setUName('');
-                      setUEmail('');
-                      setUPhone('');
-                      setUPassword('');
-                    }}
-                  >
-                    Cancelar
-                  </Button>
-                )}
-              </div>
+          <div className="flex gap-4">
+            <div className="w-1/3 space-y-2">
+              {filteredUnits.map((u) => (
+                <div
+                  key={u.user_id}
+                  onClick={() => startEditUnit(u)}
+                  className={`border p-2 rounded cursor-pointer ${
+                    unitEditingId === u.user_id && !creatingUnit ? 'bg-gray-100' : ''
+                  }`}
+                >
+                  <div className="font-semibold">{u.name}</div>
+                  <div className="text-sm text-gray-600">{u.email}</div>
+                </div>
+              ))}
             </div>
-            <table className="w-full text-left border">
-              <thead>
-                <tr className="border-b">
-                  <th className="p-2">Nome</th>
-                  <th className="p-2">Email</th>
-                  <th className="p-2">Telefone</th>
-                  <th className="p-2">Ações</th>
-                </tr>
-              </thead>
-              <tbody>
-                {units.map((u) => (
-                  <tr key={u.user_id} className="border-b">
-                    <td className="p-2">{u.name}</td>
-                    <td className="p-2">{u.email}</td>
-                    <td className="p-2">{u.phone}</td>
-                    <td className="p-2 flex gap-2">
-                      <Button size="sm" variant="outline" onClick={() => startEditUnit(u)}>
-                        Editar
-                      </Button>
-                      <Button size="sm" variant="destructive" onClick={() => deleteUnit(u.user_id)}>
-                        Excluir
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </>
+            <div className="flex-1">
+              {(creatingUnit || unitEditingId) && (
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                  <Input placeholder="Nome" value={uName} onChange={(e) => setUName(e.target.value)} />
+                  <Input placeholder="Email" value={uEmail} onChange={(e) => setUEmail(e.target.value)} />
+                  <Input placeholder="Telefone" value={uPhone} onChange={(e) => setUPhone(e.target.value)} />
+                  <Input
+                    placeholder="Senha"
+                    type="password"
+                    value={uPassword}
+                    onChange={(e) => setUPassword(e.target.value)}
+                  />
+                  <div className="sm:col-span-2 lg:col-span-3 flex gap-2">
+                    <Button onClick={saveUnit} disabled={!uName || !uEmail || (!uPassword && !unitEditingId)}>
+                      {unitEditingId ? 'Salvar' : 'Adicionar'}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={closeUnitForm}>
+                      Cancelar
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
         )}
       </div>
       <PositionSidebar
@@ -424,6 +475,13 @@ export default function CompanyUsersPage() {
             .eq('company_id', companyId)
             .then(({ data }) => setPositions(data?.map((p: any) => p.name) || []));
         }}
+      />
+      <FieldPermissionsModal
+        open={fieldsOpen}
+        onClose={() => setFieldsOpen(false)}
+        table="employees"
+        value={scopes.employees_fields || {}}
+        onSave={(val) => setScopes({ ...scopes, employees_fields: val })}
       />
     </Layout>
   );
