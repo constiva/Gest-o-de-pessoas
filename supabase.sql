@@ -81,3 +81,7 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+-- ensure companies_users has an updated_at column for triggers that rely on it
+alter table if exists public.companies_users
+  add column if not exists updated_at timestamptz default now();
