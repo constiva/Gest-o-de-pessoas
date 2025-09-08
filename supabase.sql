@@ -12,7 +12,9 @@ create table public.users (
   name text,
   phone text,
   email text,
-  company_id uuid references public.companies(id)
+  company_id uuid references public.companies(id),
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
 );
 
 create table public.employees (
@@ -81,3 +83,12 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+-- ensure companies_users has an updated_at column for triggers that rely on it
+alter table if exists public.companies_users
+  add column if not exists updated_at timestamptz default now();
+
+-- ensure users table includes timestamps for update triggers
+alter table if exists public.users
+  add column if not exists created_at timestamptz default now(),
+  add column if not exists updated_at timestamptz default now();
