@@ -8,7 +8,17 @@ const supabase = createClient(supabaseUrl, serviceRoleKey);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'POST') {
-    const { email, password, name, phone, position, role, scopes, company_id } = req.body;
+    const {
+      email,
+      password,
+      name,
+      phone,
+      position,
+      role,
+      scopes,
+      allowed_fields,
+      company_id,
+    } = req.body;
 
     const { data: userData, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -32,21 +42,56 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ error: profileError.message });
     }
 
+    const allowedFieldsPayload =
+      allowed_fields && Object.keys(allowed_fields).length > 0
+        ? allowed_fields
+        : null;
+
     const { data: companyUser, error: insertError } = await supabase
       .from('companies_users')
-      .insert({ company_id, user_id: userId, name, email, phone, position, role, scopes })
-      .select('user_id,name,email,phone,position,role,scopes')
+      .insert({
+        company_id,
+        user_id: userId,
+        name,
+        email,
+        phone,
+        position,
+        role,
+        scopes,
+        allowed_fields: allowedFieldsPayload,
+        updated_at: new Date().toISOString(),
+      })
+      .select('user_id,name,email,phone,position,role,scopes,allowed_fields')
       .single();
 
     if (insertError) {
       return res.status(400).json({ error: insertError.message });
     }
 
-    return res.status(200).json({ user: companyUser });
+    const parsedUser = {
+      ...companyUser,
+      allowed_fields:
+        typeof companyUser.allowed_fields === 'string'
+          ? JSON.parse(companyUser.allowed_fields)
+          : companyUser.allowed_fields,
+    };
+
+    return res.status(200).json({ user: parsedUser });
   }
 
   if (req.method === 'PUT') {
-    const { user_id, company_id, name, email, phone, position, password, role, scopes } = req.body;
+    const {
+      user_id,
+      company_id,
+      name,
+      email,
+      phone,
+      position,
+      password,
+      role,
+      scopes,
+      allowed_fields,
+    } = req.body;
 
     const updateAuthPayload: any = {
       email,
@@ -69,26 +114,53 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     const { error: updateProfileError } = await supabase
       .from('users')
-      .update({ name, email, phone })
+      .update({
+        name,
+        email,
+        phone,
+        updated_at: new Date().toISOString(),
+      })
       .eq('id', user_id);
 
     if (updateProfileError) {
       return res.status(400).json({ error: updateProfileError.message });
     }
 
+    const allowedFieldsPayload =
+      allowed_fields && Object.keys(allowed_fields).length > 0
+        ? allowed_fields
+        : null;
+
     const { data: updatedUser, error: updateError } = await supabase
       .from('companies_users')
-      .update({ name, email, phone, position, role, scopes })
+      .update({
+        name,
+        email,
+        phone,
+        position,
+        role,
+        scopes,
+        allowed_fields: allowedFieldsPayload,
+        updated_at: new Date().toISOString(),
+      })
       .eq('company_id', company_id)
       .eq('user_id', user_id)
-      .select('user_id,name,email,phone,position,role,scopes')
+      .select('user_id,name,email,phone,position,role,scopes,allowed_fields')
       .single();
 
     if (updateError) {
       return res.status(400).json({ error: updateError.message });
     }
 
-    return res.status(200).json({ user: updatedUser });
+    const parsedUser = {
+      ...updatedUser,
+      allowed_fields:
+        typeof updatedUser.allowed_fields === 'string'
+          ? JSON.parse(updatedUser.allowed_fields)
+          : updatedUser.allowed_fields,
+    };
+
+    return res.status(200).json({ user: parsedUser });
   }
 
   if (req.method === 'DELETE') {
