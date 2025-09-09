@@ -4,7 +4,8 @@ create table public.companies (
   email text,
   phone text,
   plan text,
-  maxemployees integer
+  maxemployees integer,
+  owner_user_id uuid
 );
 
 create table public.users (
@@ -66,11 +67,32 @@ create table public.positions (
 
 create table public.employee_views (
   id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
   user_id uuid references public.users(id) on delete cascade,
   name text not null,
   columns text[],
   filters jsonb,
   created_at timestamptz default now()
+);
+
+create table public.employee_filters (
+  id uuid primary key default uuid_generate_v4(),
+  company_id uuid references public.companies(id) on delete cascade,
+  user_id uuid references public.users(id) on delete cascade,
+  name text not null,
+  filters jsonb,
+  created_at timestamptz default now()
+);
+
+create table public.payment_webhook_log (
+  id bigserial primary key,
+  company_id uuid references public.companies(id) on delete cascade,
+  provider text not null,
+  received_at timestamptz default now(),
+  event_type text,
+  body jsonb,
+  headers jsonb,
+  ip text
 );
 
 create table public.subscriptions (
@@ -81,3 +103,42 @@ create table public.subscriptions (
   status text default 'pending',
   created_at timestamptz default now()
 );
+
+-- ensure companies record the owning user
+alter table if exists public.companies
+  add column if not exists owner_user_id uuid;
+alter table if exists public.companies
+  add constraint if not exists companies_owner_user_id_fkey
+    foreign key (owner_user_id) references public.users(id) on delete set null;
+
+-- ensure companies_users has an updated_at column for triggers that rely on it
+alter table if exists public.companies_users
+  add column if not exists updated_at timestamptz default now();
+
+alter table if exists public.employee_views
+  add column if not exists company_id uuid references public.companies(id) on delete cascade;
+
+alter table if exists public.employee_filters
+  add column if not exists company_id uuid references public.companies(id) on delete cascade;
+
+alter table if exists public.payment_webhook_log
+  add column if not exists company_id uuid references public.companies(id) on delete cascade;
+
+-- default scopes grant full module access unless explicitly disabled
+alter table if exists public.companies_users
+  alter column scopes set default '{
+    "dashboard": true,
+    "employees": true,
+    "recruitment": true,
+    "metrics": true,
+    "users": true
+  }'::jsonb;
+
+update public.companies_users
+set scopes = '{
+  "dashboard": true,
+  "employees": true,
+  "recruitment": true,
+  "metrics": true,
+  "users": true
+}'::jsonb || coalesce(scopes, '{}'::jsonb);
