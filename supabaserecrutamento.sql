@@ -48,6 +48,7 @@ create table if not exists talent_tags (
 create table if not exists talent_tag_map (
   talent_id uuid references talents(id) on delete cascade,
   tag_id uuid references talent_tags(id) on delete cascade,
+  company_id uuid references companies(id) on delete cascade,
   primary key (talent_id,tag_id)
 );
 
@@ -61,6 +62,7 @@ create table if not exists skills (
 create table if not exists talent_skill_map (
   talent_id uuid references talents(id) on delete cascade,
   skill_id uuid references skills(id) on delete cascade,
+  company_id uuid references companies(id) on delete cascade,
   primary key (talent_id,skill_id)
 );
 
@@ -118,6 +120,7 @@ create table if not exists job_stages (
 
 create table if not exists job_metrics (
   job_id uuid primary key references jobs(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
   link_clicks int default 0,
   closing_time numeric
 );
@@ -139,6 +142,7 @@ create table if not exists job_script_configs (
 create table if not exists job_scripts (
   id uuid primary key default uuid_generate_v4(),
   job_id uuid not null references jobs(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
   template_id uuid references job_script_configs(id),
   name text not null,
   content text default '',
@@ -208,6 +212,7 @@ create table if not exists application_stage_history (
 create table if not exists application_stage_dates (
   application_id uuid not null references applications(id) on delete cascade,
   stage_id uuid not null references job_stages(id) on delete cascade,
+  company_id uuid not null references companies(id) on delete cascade,
   day_in timestamptz not null,
   day_out timestamptz,
   primary key (application_id, stage_id)
@@ -232,6 +237,21 @@ create table if not exists reports_cache (
   value numeric not null,
   primary key (company_id,metric,period_start,period_end)
 );
+
+alter table if exists talent_tag_map
+  add column if not exists company_id uuid references companies(id) on delete cascade;
+
+alter table if exists talent_skill_map
+  add column if not exists company_id uuid references companies(id) on delete cascade;
+
+alter table if exists job_metrics
+  add column if not exists company_id uuid references companies(id) on delete cascade;
+
+alter table if exists job_scripts
+  add column if not exists company_id uuid references companies(id) on delete cascade;
+
+alter table if exists application_stage_dates
+  add column if not exists company_id uuid references companies(id) on delete cascade;
 
 -- RLS policies
 alter table talents enable row level security;
