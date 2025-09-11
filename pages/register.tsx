@@ -40,6 +40,17 @@ export default function Register() {
       return;
     }
     const userId = authData.user.id;
+    // create basic profile first so company can reference the owner
+    const { error: userError1 } = await supabase.from('users').insert({
+      id: userId,
+      name: form.name,
+      phone: form.phone,
+      email: form.email
+    });
+    if (userError1) {
+      alert(userError1.message);
+      return;
+    }
     const maxEmployees = PLAN_LIMITS.free;
     const { data: company, error: companyError } = await supabase
       .from('companies')
@@ -48,7 +59,8 @@ export default function Register() {
         email: form.email,
         phone: form.phone,
         plan: 'free',
-        maxemployees: maxEmployees
+        maxemployees: maxEmployees,
+        owner_user_id: userId
       })
       .select()
       .single();
@@ -56,13 +68,10 @@ export default function Register() {
       alert(companyError.message);
       return;
     }
-    const { error: userError } = await supabase.from('users').insert({
-      id: userId,
-      name: form.name,
-      phone: form.phone,
-      email: form.email,
-      company_id: company.id
-    });
+    const { error: userError } = await supabase
+      .from('users')
+      .update({ company_id: company.id })
+      .eq('id', userId);
     if (userError) {
       alert(userError.message);
       return;
