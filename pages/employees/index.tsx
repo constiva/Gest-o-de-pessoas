@@ -50,6 +50,7 @@ export default function Employees() {
   const [counts, setCounts] = useState({ active: 0, inactive: 0, dismissed: 0 });
   const [units, setUnits] = useState<string[]>([]);
   const [unitFilter, setUnitFilter] = useState('');
+  const [companyId, setCompanyId] = useState('');
   const [field, setField] = useState('');
   const [value, setValue] = useState('');
   const [textValue, setTextValue] = useState('');
@@ -105,7 +106,7 @@ export default function Employees() {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session) return;
-    let companyId = '';
+    let compId = '';
     let unitName = '';
 
     const { data: profile } = await supabase
@@ -115,7 +116,7 @@ export default function Employees() {
       .maybeSingle();
 
     if (profile) {
-      companyId = profile.company_id;
+      compId = profile.company_id;
     } else {
       const { data: compUser } = await supabase
         .from('companies_users')
@@ -123,23 +124,23 @@ export default function Employees() {
         .eq('user_id', session.user.id)
         .maybeSingle();
       if (compUser) {
-        companyId = compUser.company_id;
+        compId = compUser.company_id;
       } else {
         const { data: unitUser } = await supabase
           .from('companies_units')
           .select('company_id,name')
           .eq('user_id', session.user.id)
           .maybeSingle();
-        companyId = unitUser?.company_id || '';
+        compId = unitUser?.company_id || '';
         unitName = unitUser?.name || '';
         if (unitName) setUnitFilter(unitName);
       }
 
-      if (companyId) {
+      if (compId) {
         await supabase.from('users').upsert(
           {
             id: session.user.id,
-            company_id: companyId,
+            company_id: compId,
             name: (session.user.user_metadata as any)?.name || '',
             email: session.user.email,
             phone: (session.user.user_metadata as any)?.phone || '',
@@ -149,11 +150,12 @@ export default function Employees() {
       }
     }
 
-    if (!companyId) return;
+    setCompanyId(compId);
+    if (!compId) return;
     const { data: defs } = await supabase
       .from('custom_fields')
       .select('field,value')
-      .eq('company_id', companyId);
+      .eq('company_id', compId);
     const defMap: Record<string, string[]> = {};
     defs?.forEach((d: any) => {
       defMap[d.field] = defMap[d.field] ? [...defMap[d.field], d.value] : [d.value];
@@ -165,19 +167,19 @@ export default function Employees() {
       const res = await supabase
         .from('employees')
         .select('*')
-        .eq('company_id', companyId)
+        .eq('company_id', compId)
         .eq('unit', unitName);
       data = res.data || [];
     } else {
       const { data: unitRows } = await supabase
         .from('companies_units')
         .select('name')
-        .eq('company_id', companyId);
+        .eq('company_id', compId);
       setUnits(unitRows?.map((u: any) => u.name) || []);
       const res = await supabase
         .from('employees')
         .select('*')
-        .eq('company_id', companyId);
+        .eq('company_id', compId);
       data = res.data || [];
     }
     const expanded = data.map((emp) => ({ ...emp, ...emp.custom_fields }));
@@ -205,6 +207,7 @@ export default function Employees() {
     const { data: viewRows } = await supabase
       .from('employee_views')
       .select('*')
+      .eq('company_id', compId)
       .eq('user_id', session.user.id)
       .order('created_at', { ascending: true });
     let view = viewRows && viewRows.length ? viewRows[0] : null;
@@ -213,6 +216,7 @@ export default function Employees() {
       const { data: created } = await supabase
         .from('employee_views')
         .insert({
+          company_id: compId,
           user_id: session.user.id,
           name: 'Principal',
           columns: defaultViewCols,
@@ -252,6 +256,7 @@ export default function Employees() {
     const { data: created } = await supabase
       .from('employee_views')
       .insert({
+        company_id: companyId,
         user_id: session.user.id,
         name,
         columns: defaultViewCols,
@@ -267,7 +272,11 @@ export default function Employees() {
     const target = views.find((v) => v.id === id);
     if (!target || target.name === 'Principal') return;
     if (!confirm('Excluir esta lista?')) return;
-    await supabase.from('employee_views').delete().eq('id', id);
+    await supabase
+      .from('employee_views')
+      .delete()
+      .eq('company_id', companyId)
+      .eq('id', id);
     setViews((vs) => vs.filter((v) => v.id !== id));
     if (currentView?.id === id) {
       const next = views.find((v) => v.id !== id) || null;
@@ -283,6 +292,7 @@ export default function Employees() {
       await supabase
         .from('employee_views')
         .update({ columns: newCols })
+        .eq('company_id', companyId)
         .eq('id', currentView.id);
       setCurrentView({ ...currentView, columns: newCols });
       setViews((vs) =>
@@ -350,6 +360,7 @@ export default function Employees() {
       await supabase
         .from('employee_views')
         .update({ filters: newFilters })
+        .eq('company_id', companyId)
         .eq('id', currentView.id);
       setCurrentView({ ...currentView, filters: newFilters });
       setViews((vs) =>
@@ -365,6 +376,7 @@ export default function Employees() {
       await supabase
         .from('employee_views')
         .update({ filters: newFilters })
+        .eq('company_id', companyId)
         .eq('id', currentView.id);
       setCurrentView({ ...currentView, filters: newFilters });
       setViews((vs) =>

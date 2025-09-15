@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '../lib/supabaseClient';
 
 interface Profile {
+  id: string;
   name: string | null;
   email: string | null;
   role: string;
-  allowed_fields: string[];
+  allowed_fields: { [table: string]: { [field: string]: boolean } };
 }
 
 export default function AccountPage() {
@@ -23,10 +24,14 @@ export default function AccountPage() {
         .maybeSingle();
       if (companyUser) {
         setProfile({
+          id: user.id,
           name: companyUser.name,
           email: companyUser.email,
           role: companyUser.role,
-          allowed_fields: companyUser.allowed_fields || [],
+          allowed_fields:
+            typeof companyUser.allowed_fields === 'string'
+              ? JSON.parse(companyUser.allowed_fields)
+              : companyUser.allowed_fields || {},
         });
         return;
       }
@@ -37,10 +42,11 @@ export default function AccountPage() {
         .maybeSingle();
       if (unitUser) {
         setProfile({
+          id: user.id,
           name: unitUser.name,
           email: unitUser.email,
           role: 'unit',
-          allowed_fields: [],
+          allowed_fields: {},
         });
         return;
       }
@@ -51,12 +57,21 @@ export default function AccountPage() {
         .maybeSingle();
       if (baseUser) {
         setProfile({
+          id: user.id,
           name: baseUser.name,
           email: baseUser.email,
           role: 'admin',
-          allowed_fields: [],
+          allowed_fields: {},
         });
+        return;
       }
+      setProfile({
+        id: user.id,
+        name: user.user_metadata?.name ?? null,
+        email: user.email,
+        role: 'admin',
+        allowed_fields: {},
+      });
     }
     load();
   }, []);
@@ -67,19 +82,28 @@ export default function AccountPage() {
       {!profile && <p>Carregando...</p>}
       {profile && (
         <div className="space-y-2">
+          <p><span className="font-medium">Auth UID:</span> {profile.id}</p>
           <p><span className="font-medium">Nome:</span> {profile.name}</p>
           <p><span className="font-medium">Email:</span> {profile.email}</p>
           <p><span className="font-medium">Papel:</span> {profile.role}</p>
-          {profile.allowed_fields.length > 0 && (
-            <div>
-              <p className="font-medium">Campos que posso editar:</p>
-              <ul className="list-disc list-inside">
-                {profile.allowed_fields.map((f) => (
-                  <li key={f}>{f}</li>
+          {profile.allowed_fields &&
+            Object.keys(profile.allowed_fields).length > 0 && (
+              <div>
+                <p className="font-medium">Campos permitidos:</p>
+                {Object.entries(profile.allowed_fields).map(([table, fields]) => (
+                  <div key={table} className="mt-2">
+                    <p className="font-medium">{table}</p>
+                    <ul className="list-disc list-inside">
+                      {Object.entries(fields as any).map(([f, allowed]: any) => (
+                        <li key={f}>
+                          {f}: {allowed ? 'on' : 'off'}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
                 ))}
-              </ul>
-            </div>
-          )}
+              </div>
+            )}
         </div>
       )}
     </div>
