@@ -1,0 +1,15 @@
+The application guards route access based on per-user scope flags stored in the `companies_users` table.
+
+1. On every page load (`pages/_app.tsx`), the client fetches the current user's `companies_users.scopes`. Each module (Dashboard, Funcionários, R&S, Métricas, Usuários) maps to a scope key. If a scope is set to `false`, `_app.tsx` immediately redirects the user away from that route.
+2. The sidebar (`components/Sidebar.tsx`) uses the same `scopes` map to hide menu links when a module is disabled.
+3. All scopes default to `true`, so an account owner always has full access. Disabling a scope only takes effect if the user has a `companies_users` row with that scope explicitly set to `false`.
+
+The current errors (403/500) happen before scope checks finish:
+- `companies_users` is queried to read `scopes`, but RLS policies may block `SELECT` on that table. Without a row returned, the app falls back to defaults or shows errors.
+- `employees` and `employee_views` requests include `company_id`, yet RLS may still reject them if policies don't allow the current user or service role.
+
+To resolve:
+- Create RLS policies granting users access to their own `companies_users` row and to employee-related tables when `company_id` matches the user's company.
+- Confirm the frontend supplies `company_id` in all requests (it already does) and that the policies use this column for authorization.
+
+Once policies permit those reads, the 403/500 errors will disappear and the scope-based route blocking will work as intended.
